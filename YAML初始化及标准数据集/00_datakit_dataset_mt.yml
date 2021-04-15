@@ -1,0 +1,804 @@
+cookbook: true
+mt_daily_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    platform_code: meituan
+    cluster_client_address: tcp://172.31.54.193:8786
+  play:
+    - name: mt_day_1_std
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 订单号
+              - 骑手
+              - 骑手ID
+              - 站点ID
+              - 状态
+              - 商家推单时间
+              - 下单时间
+              - 调度时间
+              - 导航距离
+            dataset_cate: raw
+            template_code: mt_day_1
+            ignore_null_error: true
+            empty_df_record:
+              订单号: 0
+              骑手: 0
+              骑手ID: 0
+              站点ID: 0
+              状态: 0
+              商家推单时间: 0
+              下单时间: 0
+              调度时间: 0
+              导航距离: 0
+        - convert_month_day_time_column:
+            src_column: 下单时间
+            day_column: 日期
+        - parse_time_span_cols:
+            columns:
+              - 商家推单时间
+              - 下单时间
+              - 调度时间
+        - add_cols:
+            - 外单: 0
+        - rename_cols:
+            - 订单号: 订单ID
+        - df_select:
+            - '[日期] != 0'
+    - name: mt_day_1_dc_qs_order_std_lookup_map
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_day_1_std
+            columns: [骑手ID, 站点ID, 订单ID, 日期]
+        - set_meta_month_column:
+            - month
+
+    - name: mt_day_2_std
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 订单号
+              - 骑手ID
+              - 站点ID
+              - 状态
+              - 商家推单时间
+              - 下单时间
+              - 调度时间
+              - 导航距离
+            dataset_cate: raw
+            template_code: mt_day_2
+            ignore_null_error: true
+            empty_df_record:
+              订单号: 0
+              骑手ID: 0
+              站点ID: 0
+              状态: 0
+              商家推单时间: 0
+              下单时间: 0
+              调度时间: 0
+              导航距离: 0
+        - convert_month_day_time_column:
+            src_column: 下单时间
+            day_column: 日期
+        - parse_time_span_cols:
+            columns:
+              - 商家推单时间
+              - 下单时间
+              - 调度时间
+        - add_cols:
+            - 外单: 0
+        - rename_cols:
+            - 订单号: 订单ID
+        - df_select:
+            - '[日期] != 0'
+    - name: mt_day_3_std
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 订单号
+              - 骑手ID
+              - 站点ID
+              - 状态
+              - 商家推单时间
+              - 下单时间
+              - 调度时间
+              - 导航距离
+            dataset_cate: raw
+            template_code: mt_day_3
+            ignore_null_error: true
+            empty_df_record:
+              订单号: 0
+              骑手ID: 0
+              站点ID: 0
+              状态: 0
+              商家推单时间: 0
+              下单时间: 0
+              调度时间: 0
+              导航距离: 0
+        - convert_month_day_time_column:
+            src_column: 下单时间
+            day_column: 日期
+        - parse_time_span_cols:
+            columns:
+              - 商家推单时间
+              - 下单时间
+              - 调度时间
+        - add_cols:
+            - 外单: 1
+        - rename_cols:
+            - 订单号: 订单ID
+        - df_select:
+            - '[日期] != 0'
+
+    - name: mt_day_2_3_dc_qs_order_lookup_map
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - use_df:
+            key: mt_day_2_std
+            columns: [骑手ID, 站点ID, 订单ID, 日期]
+            dtypes:
+              订单ID: unicode
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_3_std
+            columns: [骑手ID, 站点ID, 订单ID, 日期]
+            dtypes:
+              订单ID: unicode
+        - stash_push_df: []
+        # merge
+        - stash_concat_df:
+            drop_stash: true
+        - df_reset_index:
+            drop: true
+        - set_meta_month_column:
+            - month
+
+    - name: mt_day_30_std
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 订单号
+              - 骑手
+              - 骑手ID
+              - 站点ID
+              - 状态
+              - 商家推单时间
+              - 下单时间
+              - 调度时间
+              - 导航距离
+            dataset_cate: raw
+            template_code: mt_day_30
+            ignore_null_error: true
+            empty_df_record:
+              订单号: 0
+              骑手: 0
+              骑手ID: 0
+              站点ID: 0
+              状态: 0
+              商家推单时间: 0
+              下单时间: 0
+              调度时间: 0
+              导航距离: 0
+        - convert_month_day_time_column:
+            src_column: 下单时间
+            day_column: 日期
+        - parse_time_span_cols:
+            columns:
+              - 商家推单时间
+              - 下单时间
+              - 调度时间
+        - add_cols:
+            - 外单: 0
+        - rename_cols:
+            - 订单号: 订单ID
+        - df_select:
+            - '[日期] != 0'
+
+    - name: mt_day_30_dc_qs_order_std_lookup_map
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - use_df:
+            key: mt_day_30_std
+            columns: [骑手ID, 站点ID, 订单ID, 日期]
+            dtypes:
+              订单ID: unicode
+        - set_meta_month_column:
+            - month
+
+    - name: mt_day_4_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 订单ID
+              - 实付金额
+              - 收入小计
+            dataset_cate: raw
+            template_code: mt_day_4
+            ignore_null_error: true
+            empty_df_record:
+              订单ID: 0
+              实付金额: 0
+              收入小计: 0
+    - name: mt_day_5_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 订单ID
+              - 餐损赔付金额(元)
+            dataset_cate: raw
+            template_code: mt_day_5
+            ignore_null_error: true
+            empty_df_record:
+              订单ID: 0
+              餐损赔付金额(元): 0
+    - name: mt_day_10_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 骑手ID
+              - 订单号
+              - 是否配送原因未完成
+              - 是否异常单剔除
+            dataset_cate: raw
+            template_code: mt_day_10
+            ignore_null_error: true
+            empty_df_record:
+              骑手ID: 0
+              订单号: 0
+              是否配送原因未完成: 0
+              是否异常单剔除: 0
+        - rename_cols:
+            - 订单号: 订单ID
+    - name: mt_day_12_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 订单ID
+              - 骑手ID
+              - 惩罚原因
+              - 惩罚金额(元)
+              - 下单时间
+            dataset_cate: raw
+            template_code: mt_day_12
+            ignore_null_error: true
+            empty_df_record:
+              订单ID: 0
+              骑手ID: 0
+              惩罚原因: 0
+              惩罚金额(元): 0
+              下单时间: 0
+    - name: mt_day_13_std
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 加盟站ID
+              - 完成单(未剔除异常单)
+              - 得分
+              - 星级
+              - 评星奖惩单量
+              - 奖惩总额(元)
+              - 评星奖惩总额(元)
+              - 不满意率
+              - 复合准时率（考核）
+              - 提前点送达率(复合)
+              - 配送原因未完成率
+              - 15分钟超时订单占比
+            dataset_cate: raw
+            template_code: mt_day_13
+            ignore_null_error: true
+            empty_df_record:
+              加盟站ID: 0
+              完成单(未剔除异常单): 0
+              得分: 0
+              星级: 0
+              评星奖惩单量: 0
+              奖惩总额(元): 0
+              评星奖惩总额(元): 0
+              不满意率: '-'
+              复合准时率（考核）: '-'
+              提前点送达率(复合): '-'
+              配送原因未完成率: '-'
+              15分钟超时订单占比: '-'
+        - rename_cols:
+            - 加盟站ID: 站点ID
+              复合准时率（考核）: 复合准时率考核
+              提前点送达率(复合): 提前点送达率复合
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'每单奖惩金额（元）'] = 0
+                df.loc[df.loc[:,u'评星奖惩单量'] > 0,u'每单奖惩金额（元）'] =  df[u'奖惩总额(元)']/df[u'评星奖惩单量']
+                result = df
+
+        - str_strip_column:
+            column: 不满意率
+            char: '%'
+        - df_to_float:
+            column: 不满意率
+        - df_eval:
+            - '[不满意率] = [不满意率] / 100'
+        - str_strip_column:
+            column: 复合准时率考核
+            char: '%'
+        - df_to_float:
+            column: 复合准时率考核
+        - df_eval:
+            - '[复合准时率考核] = [复合准时率考核] / 100'
+        - str_strip_column:
+            column: 提前点送达率复合
+            char: '%'
+        - df_to_float:
+            column: 提前点送达率复合
+        - df_eval:
+            - '[提前点送达率复合] = [提前点送达率复合] / 100'
+        - str_strip_column:
+            column: 配送原因未完成率
+            char: '%'
+        - df_to_float:
+            column: 配送原因未完成率
+        - df_eval:
+            - '[配送原因未完成率] = [配送原因未完成率] / 100'
+        - str_strip_column:
+            column: 15分钟超时订单占比
+            char: '%'
+        - df_to_float:
+            column: 15分钟超时订单占比
+        - df_eval:
+            - '[15分钟超时订单占比] = [15分钟超时订单占比] / 100'
+        - df_to_int:
+            - 星级
+        - df_round:
+            columns: [提前点送达率复合, 配送原因未完成率, 配送原因未完成率, 15分钟超时订单占比]
+            precision: 6
+    - name: mt_day_15_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 站点ID
+              - 金额
+            dataset_cate: raw
+            template_code: mt_day_15
+            ignore_null_error: true
+            empty_df_record:
+              站点ID: 0
+              金额: 0
+    - name: mt_day_24_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 骑手
+              - 骑手名称
+              - 身份证号
+              - 手机号
+              - 月份
+              - 加盟站ID
+            dataset_cate: raw
+            template_code: mt_day_24
+            ignore_null_error: true
+            empty_df_record:
+              骑手: 0
+              骑手名称: 0
+              身份证号: 0
+              手机号: 0
+              月份: 0
+              加盟站ID: 0
+        - df_to_int:
+            - 月份
+        - rename_cols:
+            - 骑手: 骑手ID
+              加盟站ID: 站点ID
+        - set_meta_month_column:
+            - month
+    - name: mt_day_25_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 订单ID
+              - 配送服务2.0违规扣款(元)
+            dataset_cate: raw
+            template_code: mt_day_25
+            ignore_null_error: true
+            empty_df_record:
+              订单ID: 0
+              配送服务2.0违规扣款(元): 0
+    - name: mt_day_18_std
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 骑手ID
+              - 站点ID
+              - 完成单量
+              - 用户评价配送五分单量
+              - 配送准时单量
+              - 配送准时率
+              - meta_day
+              - 骑手
+              - 站点
+              - 骑手接单量
+              - 注册日期
+              - 总加盟商
+              - 总加盟商ID
+            dataset_cate: raw
+            template_code: mt_day_18
+            ignore_null_error: true
+            empty_df_record:
+              骑手ID: 0
+              站点ID: 0
+              完成单量: 0
+              用户评价配送五分单量: 0
+              配送准时单量: 0
+              配送准时率: '-'
+              meta_day: 0
+              骑手: 0
+              站点: 0
+              骑手接单量: 0
+              注册日期: 0
+              总加盟商: 0
+              总加盟商ID: 0
+        - rename_cols:
+          - meta_day: 日期
+            总加盟商: 主体
+            总加盟商ID: 主体ID
+        - parse_number_cols:
+          - 完成单量
+        - parse_number_cols:
+          - 用户评价配送五分单量
+        - parse_number_cols:
+          - 配送准时单量
+        - str_strip_column:
+            column: 配送准时率
+            char: '%'
+        - df_to_float:
+            column: 配送准时率
+        - df_select:
+            - '[完成单量] > 0'
+        - drop_duplicates:
+            subset:
+              - 骑手ID
+              - 站点ID
+              - 日期
+            # keep: first
+        - set_meta_month_column:
+            - month
+    - name: mt_day_18_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_day_18_std
+            columns: [骑手ID, 站点ID, 完成单量, 用户评价配送五分单量, 配送准时单量, 配送准时率, 日期, 骑手, 站点, 骑手接单量, 注册日期, 主体ID, 主体]
+        - df_select:
+            - '[骑手ID] != @p1'
+            - p1: 合计
+        - df_groupby:
+            by: [骑手ID,站点ID, 骑手, 站点, 注册日期, 主体ID, 主体]
+        - df_sum:
+            column: [完成单量, 骑手接单量]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+    - name: mt_day_6_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_cate: raw
+            template_code: mt_day_6
+            ignore_null_error: true
+        - pad_cols:
+            columns: [全天在线时长(含忙碌),全天在线时长(不含忙碌)]
+            default_value: 0
+        - df_to_int:
+            - 全天在线时长(含忙碌)
+        - df_to_int:
+            - 全天在线时长(不含忙碌)
+        - df_sum_with_columns:
+            init_value: 0
+            dest_column: 全天在线时长
+            src_columns: [全天在线时长(含忙碌),全天在线时长(不含忙碌)]
+        - fetch_cols:
+            columns: [日期,骑手ID,全天在线时长]
+        - df_to_int:
+            - 日期
+        - set_meta_month_column:
+            - month
+    - name: mt_day_23_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 骑手ID
+              - 姓名
+              - 考核正常天数
+              - 开始日期
+            dataset_cate: raw
+            template_code: mt_day_23
+            ignore_null_error: true
+            empty_df_record:
+              骑手ID: 0
+              姓名: 0
+              考核正常天数: 0
+              开始日期: 0
+        - set_meta_month_column:
+            - month
+
+    - name: mt_teams_service_quality_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: mt_day_13_std
+            dataset_cate: std
+            fallback_last: true
+            columns: [站点ID, 得分, 星级, 不满意率, 复合准时率考核, 配送原因未完成率, 提前点送达率复合, 15分钟超时订单占比]
+            ignore_null_error: true
+            empty_df_record:
+                站点ID: '-'
+                平台得分: 0
+                平台星级: 0
+                评星奖惩单量: 0
+                不满意率: 0
+                复合准时率考核: 0
+                提前点送达率复合: 0
+                配送原因未完成率: 0
+                15分钟超时订单占比: 0
+            rename:
+              得分: 平台得分
+              星级: 平台星级
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+mt_month_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    platform_code: meituan
+    cluster_client_address: tcp://172.31.54.193:8786
+  play:
+    - name: mt_month_31_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - BOSS人员ID
+              - 人员姓名
+              - 商圈ID
+              - 完成单量
+            dataset_cate: raw
+            template_code: mt_month_31
+        - rename_cols:
+            - 商圈ID: 站点ID
+    - name: mt_month_7_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 订单ID
+              - 实付金额
+              - 收入小计
+            dataset_cate: raw
+            template_code: mt_month_7
+    - name: mt_month_9_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 骑手ID
+              - 订单号
+              - 是否配送原因未完成
+              - 是否异常单剔除
+            dataset_cate: raw
+            template_code: mt_month_9
+        - rename_cols:
+            - 订单号: 订单ID
+    - name: mt_month_8_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 订单ID
+              - 餐损赔付金额(元)
+            dataset_cate: raw
+            template_code: mt_month_8
+    - name: mt_month_17_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 订单ID
+              - 骑手ID
+              - 惩罚原因
+              - 惩罚金额(元)
+              - 下单时间
+            dataset_cate: raw
+            template_code: mt_month_17
+    - name: mt_month_16_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 加盟站ID
+              - 完成单(未剔除异常单)
+              - 得分
+              - 星级
+              - 评星奖惩单量
+              - 奖惩总额(元)
+              - 评星奖惩总额(元)
+              - 不满意率
+              - 复合准时率（考核）
+              - 提前点送达率(复合)
+              - 配送原因未完成率
+              - 15分钟超时订单占比
+            dataset_cate: raw
+            template_code: mt_month_16
+        - rename_cols:
+            - 加盟站ID: 站点ID
+              复合准时率（考核）: 复合准时率考核
+              提前点送达率(复合): 提前点送达率复合
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'每单奖惩金额（元）'] = 0
+                df.loc[df.loc[:,u'评星奖惩单量'] > 0,u'每单奖惩金额（元）'] =  df[u'奖惩总额(元)']/df[u'评星奖惩单量']
+                result = df
+
+        - str_strip_column:
+            column: 不满意率
+            char: '%'
+        - df_to_float:
+            column: 不满意率
+        - df_eval:
+            - '[不满意率] = [不满意率] / 100'
+        - str_strip_column:
+            column: 复合准时率考核
+            char: '%'
+        - df_to_float:
+            column: 复合准时率考核
+        - df_eval:
+            - '[复合准时率考核] = [复合准时率考核] / 100'
+        - str_strip_column:
+            column: 提前点送达率复合
+            char: '%'
+        - df_to_float:
+            column: 提前点送达率复合
+        - df_eval:
+            - '[提前点送达率复合] = [提前点送达率复合] / 100'
+        - str_strip_column:
+            column: 配送原因未完成率
+            char: '%'
+        - df_to_float:
+            column: 配送原因未完成率
+        - df_eval:
+            - '[配送原因未完成率] = [配送原因未完成率] / 100'
+        - str_strip_column:
+            column: 15分钟超时订单占比
+            char: '%'
+        - df_to_float:
+            column: 15分钟超时订单占比
+        - df_eval:
+            - '[15分钟超时订单占比] = [15分钟超时订单占比] / 100'
+        - df_round:
+            columns: [提前点送达率复合, 配送原因未完成率, 配送原因未完成率, 15分钟超时订单占比]
+            precision: 6
+    - name: mt_month_14_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 站点ID
+              - 金额
+            dataset_cate: raw
+            template_code: mt_month_14
+    - name: mt_month_26_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 订单ID
+              - 配送服务2.0违规扣款(元)
+            dataset_cate: raw
+            template_code: mt_month_26
+    - name: mt_month_27_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 骑手ID
+              - 站点ID
+              - 帐单金额
+            dataset_cate: raw
+            template_code: mt_month_27
+    - name: mt_month_28_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 骑手ID
+              - 站点ID
+              - 帐单金额
+            dataset_cate: raw
+            template_code: mt_month_28
+    - name: mt_month_29_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 骑手ID
+              - 站点ID
+              - 帐单金额
+            dataset_cate: raw
+            template_code: mt_month_29
+    - name: mt_month_21_std
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 骑手ID
+              - 站点ID
+              - 完成单量
+              - 用户评价配送五分单量
+              - 配送准时单量
+              - 配送准时率
+              - meta_day
+            dataset_cate: raw
+            template_code: mt_month_21
+        - df_select:
+            - '[骑手ID] != @p1'
+            - p1: 合计
+        - rename_cols:
+            - meta_day: 日期
+        - parse_number_cols:
+          - 完成单量
+        - parse_number_cols:
+          - 用户评价配送五分单量
+        - parse_number_cols:
+          - 配送准时单量
+        - str_strip_column:
+            column: 配送准时率
+            char: '%'
+        - df_select:
+            - '[完成单量] > 0'
+        - drop_duplicates:
+            subset:
+              - 骑手ID
+              - 站点ID
+              - 日期
+            # keep: first
+        - set_meta_month_column:
+            - month

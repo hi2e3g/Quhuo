@@ -1,0 +1,1092 @@
+cookbook: true
+ele_month_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    platform_code: elem
+    cluster_client_address: tcp://172.31.54.193:8786
+  play:
+    - cooks:
+        - fetch_dataset:
+            columns:
+              - 账单时间
+              - 团队ID
+              - 骑手ID
+              - 金额
+              - 账单类型
+              - 业务类型
+              - 详情
+              - 订单号
+              - 运单号
+              - 业务交易时间
+              - 基础配送费
+              - 城市基础价
+              - 商圈加价
+              - 提点费用
+              - 时段补贴
+              - 距离补贴
+              - 重量补贴
+              - 特殊业务补贴
+              - 小费
+              - 门店配送难度补贴
+              - T时效
+              - 驻店补贴
+              - 品类补贴
+            dataset_cate: raw
+            template_code: ele_month_35
+        - rename_cols:
+            - 团队ID: 站点ID
+        - set_date_column:
+            src_column: 账单时间
+            format:
+              - MM-DD-YY
+              - YYYY-MM-DD
+        - set_meta_month_column:
+            - month
+        - set_weekday_column:
+            - 账单时间
+            - weekday
+        - str_strip_column:
+            - 订单号
+        - str_strip_column:
+            - 运单号
+        - parse_time_span_cols:
+            - 业务交易时间
+      sync_result: true
+#      keep_result: true
+      name: ele_month_35_std
+    - cooks:
+        - use_df:
+            key: ele_month_35_std
+            columns: [账单时间, 骑手ID, 站点ID, 订单号, 运单号]
+        - drop_duplicates:
+            - [骑手ID, 站点ID, 订单号, 运单号]
+        - df_reset_index: []
+      sync_result: true
+#      keep_result: True
+      name: ele_month_35_std_lookup_map
+    - cooks:
+        - fetch_dataset:
+            columns:
+              - 账单时间
+              - 加盟商ID
+              - 团队ID
+              - 骑手ID
+              - 金额
+              - 账单类型
+              - 业务类型
+              - 详情
+              - 订单号
+              - 运单号
+            dataset_cate: raw
+            template_code: ele_month_37
+        - rename_cols:
+            - 团队ID: 站点ID
+        - set_date_column:
+            src_column: 账单时间
+            format: MM-DD-YY
+        - str_strip_column:
+            - 订单号
+        - str_strip_column:
+            - 运单号
+        - set_meta_month_column:
+            - month
+      name: ele_month_37_std
+      sync_result: true
+#      keep_result: true
+    - name: ele_month_37_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_month_37_std
+            columns: [账单时间, 站点ID, 骑手ID, 金额, 账单类型, 业务类型, 订单号, 运单号,详情]
+        - drop_duplicates:
+            - [账单时间, 站点ID, 骑手ID, 金额, 账单类型, 业务类型, 订单号, 运单号]
+        - df_reset_index: []
+        - push_dataset:
+            key: ele_month_37_std_mini
+        - use_df:
+            key: ele_month_37_std_mini
+        - df_select:
+            - '[账单类型] == @p1'
+            - p1: 申诉返款
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 申诉
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_37_std_mini
+        - df_select:
+            - '([账单类型] == @p1) & ([业务类型] in @p2)'
+            - p1: 违规扣款
+              p2: [抽检,索赔,投诉]
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 违规（不包含罚单）
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_37_std_mini
+        - df_select:
+            - '[账单类型] == @p1'
+            - p1: 违规扣款
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 违规（含罚单）
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_37_std_mini
+        - df_select:
+            - '([账单类型] == @p3) & ([业务类型] in @p4)'
+            - p3: 考核奖惩
+              p4: KPI
+#        - df_py_select:
+#            - 'df[u"详情"].str.contains(u"上")'
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 上KPI收入
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_37_std_mini
+        - df_select:
+            - '([账单类型] == @p3) & ([业务类型] in @p4)'
+            - p3: 考核奖惩
+              p4: KPI
+        - df_py_select:
+            - 'df[u"详情"].str.contains(u"下")'
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 下KPI收入
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_37_std_mini
+        - df_select:
+            - '([账单类型] == @p3) & ([业务类型] in @p4)'
+            - p3: 服务费
+              p4:
+                - 非峰卡
+                - 技术服务费
+                - 信息服务费
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 骑手费用扣款
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [账单时间, 骑手ID, 站点ID]
+            how: outer
+            fillna: 0
+            drop_stash: true
+    - name: ele_month_39_std
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - fetch_dataset:
+            columns:
+              - 账单时间
+              - 团队ID
+              - 骑手ID
+              - 金额
+              - 账单类型
+              - 业务类型
+              - 订单号
+              - 运单号
+            dataset_cate: raw
+            template_code: ele_month_39
+        - rename_cols:
+            - 团队ID: 站点ID
+        - set_date_column:
+            src_column: 账单时间
+            format: MM-DD-YY
+        - str_strip_column:
+            - 订单号
+        - str_strip_column:
+            - 运单号
+        - set_meta_month_column:
+            - month
+    - cooks:
+        - use_df:
+            key: ele_month_39_std
+            columns: [账单时间, 骑手ID,站点ID, 金额]
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 运单补贴
+        - df_reset_index: []
+      sync_result: true
+      name: ele_month_39_std_ext
+    - cooks:
+        - fetch_dataset:
+            columns:
+              - 账单时间
+              - 团队ID
+              - 骑手ID
+              - 金额
+              - 账单类型
+              - 业务类型
+              - 订单号
+              - 运单号
+            dataset_cate: raw
+            template_code: ele_month_41
+        - rename_cols:
+            - 团队ID: 站点ID
+        - set_date_column:
+            src_column: 账单时间
+            format: MM-DD-YY
+        - str_strip_column:
+            - 订单号
+        - str_strip_column:
+            - 运单号
+        - set_meta_month_column:
+            - month
+      sync_result: true
+#      keep_result: true
+      name: ele_month_41_std
+    - cooks:
+        - use_df:
+            key: ele_month_41_std
+            columns: [账单时间, 骑手ID, 站点ID, 账单类型, 金额]
+        - df_select:
+            - '[账单类型] == @p7'
+            - p7: 骑手活动
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 非运单补贴
+        - df_reset_index: []
+      sync_result: true
+      name: ele_month_41_std_ext
+    - cooks:
+        - fetch_dataset:
+            columns:
+              - 运单号
+              - 问题单类型
+            dataset_cate: raw
+            template_code: ele_month_33
+      sync_result: true
+#      keep_result: true
+      name: ele_month_33_std
+    - cooks:
+        - use_df:
+            key: ele_month_33_std
+            columns:  [运单号, 问题单类型]
+        - df_select:
+            - '[问题单类型] in @p1'
+            - p1: [配送原因取消, 骑手T+12超时,坏单,超时,虚假配送,违规送达]
+        - drop_duplicates:
+            - [运单号, 问题单类型]
+        - push_dataset:
+            key: ele_month_33_std_tmp
+        - use_df:
+            key: ele_month_35_std_lookup_map
+            columns: [账单时间, 骑手ID, 站点ID, 运单号]
+        - drop_duplicates:
+            - [账单时间, 骑手ID, 站点ID, 运单号]
+        - push_dataset:
+            key: ele_month_35_std_lookup_map_mini
+        - use_df:
+            key: ele_month_33_std_tmp
+        - df_merge:
+            other_df:
+              key: ele_month_35_std_lookup_map_mini
+            on: 运单号
+            how: left
+            # force_rebuild_dask: true
+        - df_reset_index: []
+        - push_dataset:
+            key: ele_month_33_std_tmp
+        - use_df:
+            key: ele_month_33_std_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 虚假配送
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 虚假配送单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_33_std_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 配送原因取消
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 配送原因取消单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_33_std_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 骑手T+12超时
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 骑手T12超时单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_33_std_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 坏单
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 坏单单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_33_std_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 超时
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 超时单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_33_std_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 违规送达
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 违规送达单量
+        - df_reset_index: []
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [账单时间, 骑手ID, 站点ID]
+            how: outer
+            fillna: 0
+            drop_stash: true
+            # force_rebuild_dask: true
+            dtypes:
+              虚假配送单量: int64
+              配送原因取消单量: int64
+              骑手T12超时单量: int64
+              坏单单量: int64
+              超时单量: int64
+              违规送达单量: int64
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+      sync_result: true
+      name: ele_month_33_std_ext
+# 新增运单详情月账单 0927
+    - name: ele_month_57_std
+      sync_result: true
+      # keep_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            dataset_cate: raw
+            template_code: ele_month_57
+            columns: [团队ID,团队名称, 骑手id,配送员姓名,运单号, 运单送达时间, 骑手T超时时长, 用户评价状态,用户评价责任方,下载城市,是否T+2用户评价]
+            rename:
+              团队ID: 站点ID
+              团队名称: 站点
+              骑手id: 骑手ID
+              配送员姓名: 骑手
+        - set_meta_month_column:
+            - month
+        - set_meta_days_column:
+            - 当月总天数
+        - str_strip_column:
+            - 运单号
+        - parse_time_span_cols:
+            - 运单送达时间
+
+# 1-30日累计配送费账单
+    - name: ele_month_58_std
+      sync_result: true
+#      keep_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            dataset_cate: raw
+            template_code: ele_month_58
+            columns:
+              - 账单时间
+              - 团队ID
+              - 团队名称
+              - 骑手ID
+              - 骑手名称
+              - 金额
+              - 账单类型
+              - 业务类型
+              - 详情
+              - 订单号
+              - 运单号
+              - 业务交易时间
+              - 基础配送费
+              - 城市基础价
+              - 商圈加价
+              - 提点费用
+              - 时段补贴
+              - 距离补贴
+              - 重量补贴
+              - 特殊业务补贴
+              - 小费
+              - 门店配送难度补贴
+              - T时效
+              - 驻店补贴
+              - 品类补贴
+              - 加盟商ID
+        - rename_cols:
+            - 团队ID: 站点ID
+              团队名称: 站点
+              骑手名称: 骑手
+        - set_date_column:
+            src_column: 账单时间
+            format: MM-DD-YY
+        - set_meta_month_column:
+            - month
+        - set_weekday_column:
+            - 账单时间
+            - weekday
+        - str_strip_column:
+            - 订单号
+        - str_strip_column:
+            - 运单号
+        - parse_time_span_cols:
+            - 业务交易时间
+
+    # 1-30日累计评价账单
+    - name: ele_month_59_std
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 评价日期
+              - 运单号
+              - 骑手信息
+              - 评价等级
+              - 申述状态
+              - 评价来源
+              - 骑手id
+              - 判定状态
+              - 下载城市
+              - 团队
+            dataset_cate: raw
+            template_code: ele_month_59
+            rename:
+              骑手id: 骑手ID
+              团队: 站点
+
+   # 饿了么代理商账单（除配送费外）的日累计账单，生成月数据集；节省饿了么薪资中间表生成时间
+    - name: ele_month_36_std_salary
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 账单时间
+              - 加盟商ID
+              - 团队ID
+              - 团队名称
+              - 骑手ID
+              - 骑手名称
+              - 金额
+              - 账单类型
+              - 业务类型
+              - 详情
+              - 订单号
+              - 运单号
+            dataset_cate: raw
+            template_code: ele_day_36
+        - rename_cols:
+            - 团队ID: 站点ID
+              团队名称: 站点
+              骑手名称: 骑手
+        - set_date_column:
+            src_column: 账单时间
+            format: MM-DD-YY
+        - str_strip_column:
+            - 订单号
+        - str_strip_column:
+            - 运单号
+        - set_meta_month_column:
+            - month
+
+
+    - name: ele_month_48_std
+      sync_result: true
+      cooks:
+      - fetch_dataset:
+          datakit_pull_way: last_day
+          columns:
+              - 骑手ID
+              - 团队ID
+              - 考勤日期
+              - 全天在线时长
+              - 凌晨夜宵在线时长
+              - 早餐在线时长
+              - 午高峰在线时长
+              - 下午在线时长
+              - 晚高峰在线时长
+              - 晚间在线时长
+              - 晚间夜宵在线时长
+          dataset_cate: raw
+          template_code: ele_month_48
+          rename:
+              团队ID: 站点ID
+      - set_meta_month_column:
+          - month
+      - set_date_column:
+          src_column: 考勤日期
+      - df_fillna:
+          columns: [ 全天在线时长,凌晨夜宵在线时长,早餐在线时长,午高峰在线时长,下午在线时长,晚高峰在线时长,晚间在线时长,晚间夜宵在线时长 ]
+          value: '-'
+      - run_py:
+          - |
+            df = to_df(df)
+            fn = lambda x: (int(re.match(u'(.*)小时(.*)分钟', x, ).group(1)) * 60 + int(re.match(u'(.*)小时(.*)分钟', x, ).group(2))) if re.match(u'(.*)小时(.*)分钟', x, ) else 0
+            df[u'全天在线时长-分钟'] = df[u'全天在线时长'].apply(fn)
+            df[u'凌晨夜宵在线时长-分钟'] = df[u'凌晨夜宵在线时长'].apply(fn)
+            df[u'早餐在线时长-分钟'] = df[u'早餐在线时长'].apply(fn)
+            df[u'午高峰在线时长-分钟'] = df[u'午高峰在线时长'].apply(fn)
+            df[u'下午在线时长-分钟'] = df[u'下午在线时长'].apply(fn)
+            df[u'晚高峰在线时长-分钟'] = df[u'晚高峰在线时长'].apply(fn)
+            df[u'晚间在线时长-分钟'] = df[u'晚间在线时长'].apply(fn)
+            df[u'晚间夜宵在线时长-分钟'] = df[u'晚间夜宵在线时长'].apply(fn)
+            result = to_dd(df)
+
+
+ele_daily_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    platform_code: elem
+    cluster_client_address: tcp://172.31.54.193:8786
+  play:
+    - cooks:
+        - fetch_dataset:
+            columns:
+              - 团队ID
+              - 骑手id
+              - 运单号
+              - 运单送达时间
+              - 用户评价责任方
+              - 用户评价状态
+              - 骑手T超时时长
+            dataset_cate: raw
+            template_code: ele_day_4
+        - rename_cols:
+            - 团队ID: 站点ID
+        - set_meta_month_column:
+            - month
+        - str_strip_column:
+            - 运单号
+        - rename_cols:
+            - 骑手id: 骑手ID
+        - parse_time_span_cols:
+            - 运单送达时间
+      sync_result: true
+      name: ele_day_4_std
+    - cooks:
+        - fetch_dataset:
+            columns:
+              - 账单时间
+              - 团队ID
+              - 骑手ID
+              - 金额
+              - 账单类型
+              - 业务类型
+              - 详情
+              - 订单号
+              - 运单号
+              - 业务交易时间
+              - 基础配送费
+              - 城市基础价
+              - 商圈加价
+              - 提点费用
+              - 时段补贴
+              - 距离补贴
+              - 重量补贴
+              - 特殊业务补贴
+              - 小费
+              - 门店配送难度补贴
+              - T时效
+              - 驻店补贴
+              - 品类补贴
+              - 加盟商ID
+            dataset_cate: raw
+            template_code: ele_day_34
+        - rename_cols:
+            - 团队ID: 站点ID
+        - set_date_column:
+            src_column: 账单时间
+            format: MM-DD-YY
+        - set_meta_month_column:
+            - month
+        - set_weekday_column:
+            - 账单时间
+            - weekday
+        - str_strip_column:
+            - 订单号
+        - str_strip_column:
+            - 运单号
+        - parse_time_span_cols:
+            - 业务交易时间
+      sync_result: true
+#      keep_result: true
+      name: ele_day_34_std
+    - cooks:
+        - fetch_dataset:
+            columns:
+              - 团队ID
+              - 团队名称
+              - 骑手ID
+              - 骑手名称
+              - 业务类型
+              - 详情
+              - 订单号
+            dataset_cate: raw
+            template_code: ele_day_34
+            rename:
+              团队ID: 站点ID
+              团队名称: 站点
+              骑手名称: 骑手
+        - set_meta_month_column:
+            - month
+        - str_strip_column:
+            - 订单号
+        - df_select:
+            - '([业务类型] == @p1) & ([详情] in @p2)'
+            - p1: 配送收入
+              p2: [差评,完成单,完成单-超时]
+        - df_groupby:
+            by: [站点ID,站点, 骑手ID, 骑手]
+        - df_count:
+            column: 订单号
+            rename: 完成单量
+        - df_reset_index: []
+        - add_cols:
+            - 注册日期:
+        - add_cols:
+            - 骑手接单量:
+        - set_meta_month_column:
+            - month
+      sync_result: true
+      name: ele_day_34_std_ext
+    - cooks:
+        - use_df:
+            key: ele_day_34_std
+            columns: [账单时间, 站点ID, 骑手ID, 运单号, 订单号]
+        - drop_duplicates:
+            - [骑手ID, 站点ID, 订单号, 运单号]
+        - df_reset_index: []
+#        - dask_persist_compute:
+#            sync_compute: true
+#            chunk_size: 10000
+      sync_result: true
+#      keep_result: true
+      name: ele_day_34_std_lookup_map
+    - cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 账单时间
+              - 加盟商ID
+              - 团队ID
+              - 骑手ID
+              - 骑手名称
+              - 金额
+              - 账单类型
+              - 业务类型
+              - 详情
+              - 订单号
+              - 运单号
+            dataset_cate: raw
+            template_code: ele_day_36
+        - rename_cols:
+            - 团队ID: 站点ID
+        - set_date_column:
+            src_column: 账单时间
+            format: MM-DD-YY
+        - str_strip_column:
+            - 订单号
+        - str_strip_column:
+            - 运单号
+        - set_meta_month_column:
+            - month
+      sync_result: true
+#      keep_result: true
+      name: ele_day_36_std
+    - cooks:
+        - use_df:
+            key: ele_day_36_std
+            columns: [账单时间, 站点ID, 骑手ID, 金额, 账单类型, 业务类型, 订单号, 运单号,详情]
+        - drop_duplicates:
+            - [账单时间, 站点ID, 骑手ID, 金额, 账单类型, 业务类型, 订单号, 运单号]
+        - df_reset_index: []
+        - push_dataset:
+            key: ele_day_36_std_mini
+        - use_df:
+            key: ele_day_36_std_mini
+        - df_select:
+            - '[账单类型] == @p1'
+            - p1: 申诉返款
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 申诉
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_36_std_mini
+        - df_select:
+            - '([账单类型] == @p1) & ([业务类型] in @p2)'
+            - p1: 违规扣款
+              p2: [抽检,索赔,投诉]
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 违规（不包含罚单）
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_36_std_mini
+        - df_select:
+            - '[账单类型] == @p1'
+            - p1: 违规扣款
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 违规（含罚单）
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_36_std_mini
+        - df_select:
+            - '([账单类型] == @p3) & ([业务类型] in @p4)'
+            - p3: 考核奖惩
+              p4: KPI
+#        - df_py_select:
+#            - 'df[u"详情"].str.contains(u"上")'
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 上KPI收入
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_36_std_mini
+        - use_df:
+            key: ele_day_36_std_mini
+        - df_select:
+            - '([账单类型] == @p3) & ([业务类型] in @p4)'
+            - p3: 考核奖惩
+              p4: KPI
+        - df_py_select:
+            - 'df[u"详情"].str.contains(u"下")'
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 下KPI收入
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_36_std_mini
+        - df_select:
+            - '([账单类型] == @p3) & ([业务类型] in @p4)'
+            - p3: 服务费
+              p4:
+                - 非峰卡
+                - 技术服务费
+                - 信息服务费
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 骑手费用扣款
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [账单时间, 骑手ID, 站点ID]
+            how: outer
+            fillna: 0
+            drop_stash: true
+      sync_result: true
+      name: ele_day_36_std_ext
+    - cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 账单时间
+              - 团队ID
+              - 骑手ID
+              - 金额
+              - 账单类型
+              - 业务类型
+              - 订单号
+              - 运单号
+            dataset_cate: raw
+            template_code: ele_day_38
+        - rename_cols:
+            - 团队ID: 站点ID
+        - set_date_column:
+            src_column: 账单时间
+            format: MM-DD-YY
+        - str_strip_column:
+            - 订单号
+        - str_strip_column:
+            - 运单号
+        - set_meta_month_column:
+            - month
+      sync_result: true
+#      keep_result: true
+      name: ele_day_38_std
+    - cooks:
+        - use_df:
+            key: ele_day_38_std
+            columns: [账单时间, 骑手ID,站点ID, 金额]
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 运单补贴
+        - df_reset_index: []
+      sync_result: true
+      name: ele_day_38_std_ext
+    - cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 账单时间
+              - 团队ID
+              - 骑手ID
+              - 金额
+              - 账单类型
+              - 业务类型
+              - 订单号
+              - 运单号
+            dataset_cate: raw
+            template_code: ele_day_40
+        - rename_cols:
+            - 团队ID: 站点ID
+        - set_date_column:
+            src_column: 账单时间
+            format: MM-DD-YY
+        - str_strip_column:
+            - 订单号
+        - str_strip_column:
+            - 运单号
+        - set_meta_month_column:
+            - month
+      sync_result: true
+#      keep_result: true
+      name: ele_day_40_std
+    - cooks:
+        - use_df:
+            key: ele_day_40_std
+            columns: [账单时间, 骑手ID, 站点ID, 账单类型, 金额]
+        - df_select:
+            - '[账单类型] == @p7'
+            - p7: 骑手活动
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_sum:
+            column: 金额
+            rename: 非运单补贴
+        - df_reset_index: []
+      sync_result: true
+      name: ele_day_40_std_ext
+    - cooks:
+        - fetch_dataset:
+            datakit_pull_way: last_day
+            columns:
+              - 运单号
+              - 问题单类型
+            dataset_cate: raw
+            template_code: ele_day_32
+      sync_result: true
+#      keep_result: true
+      name: ele_day_32_std
+    - cooks:
+        - use_df:
+            key: ele_day_32_std
+            columns:  [运单号, 问题单类型]
+        - df_select:
+            - '[问题单类型] in @p1'
+            - p1: [配送原因取消, 骑手T+12超时,坏单,超时,虚假配送,违规送达]
+        - drop_duplicates:
+            - [运单号, 问题单类型]
+        #        - dask_persist_compute:
+        #            sync_compute: true
+        #            chunk_size: 3000
+        - push_dataset:
+            key: ele_day_32_std_tmp
+        - use_df:
+            key: ele_day_34_std_lookup_map
+            columns: [账单时间, 骑手ID, 站点ID, 运单号]
+        #        - dask_persist_compute:
+        #            sync_compute: true
+        #            chunk_size: 3000
+        - drop_duplicates:
+            - [账单时间, 骑手ID, 站点ID, 运单号]
+        - push_dataset:
+            key: ele_day_34_std_lookup_map_mini
+        - use_df:
+            key: ele_day_32_std_tmp
+        - df_merge:
+            other_df:
+              key: ele_day_34_std_lookup_map_mini
+            on: 运单号
+            how: left
+#            force_rebuild_dask: true
+#            chunk_size: 2000
+            # left_index: true
+            # right_index: true
+        - push_dataset:
+            key: ele_day_32_std_ext_tmp
+        - use_df:
+            key: ele_day_32_std_ext_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 虚假配送
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 虚假配送单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_32_std_ext_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 配送原因取消
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 配送原因取消单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_32_std_ext_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 骑手T+12超时
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 骑手T12超时单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_32_std_ext_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 坏单
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 坏单单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_32_std_ext_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 超时
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 超时单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_32_std_ext_tmp
+        - df_select:
+            - '[问题单类型] == @p5'
+            - p5: 违规送达
+        - df_groupby:
+            by: [账单时间, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 违规送达单量
+        - df_reset_index: []
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [账单时间, 骑手ID, 站点ID]
+            how: outer
+            fillna: 0
+            drop_stash: true
+#            force_rebuild_dask: true
+            dtypes:
+              虚假配送单量: int64
+              配送原因取消单量: int64
+              骑手T12超时单量: int64
+              坏单单量: int64
+              超时单量: int64
+              违规送达单量: int64
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+      sync_result: true
+      name: ele_day_32_std_ext
+    - cooks:
+        - fetch_dataset:
+            columns:
+              - 评价日期
+              - 运单号
+              - 骑手信息
+              - 评价等级
+              - 申述状态
+              - 评价来源
+              - 骑手id
+              - 判定状态
+            dataset_cate: raw
+            template_code: ele_day_13
+            rename:
+              骑手id: 骑手ID
+      sync_result: true
+      name: ele_day_13_std
