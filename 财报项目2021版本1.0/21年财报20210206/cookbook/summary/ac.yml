@@ -1,0 +1,554 @@
+dataset_vis:
+  vis_grid:
+    columns: []
+    row_sort:
+      sort_orders: []
+      sort_by: index
+dataset_pipeline:
+
+  - pivot_table:
+      values: money
+      index: [ac_code, ac_name]
+      columns: []
+      aggfunc: sum
+
+  - row_pad_value_by_index:
+      index_col: ac_code
+      pad_values:
+        Q-101: 0
+        Q-102: 0
+        Q-103: 0
+        Q-104: 0
+        Q-201: 0
+        Q-202: 0
+        Q-203: 0
+        Q-204: 0
+        Q-205: 0
+        Q-206: 0
+        Q-207: 0
+        Q-208: 0
+        Q-209: 0
+        Q-210: 0
+        Q-211: 0
+        Q-212: 0
+        Q-301: 0
+        Q-302: 0
+        Q-303: 0
+        Q-401: 0
+        Q-402: 0
+        Q-403: 0
+        Q-404: 0
+        Q-700: 0
+        Q-701: 0
+        Q-30101: 0
+        Q-1010101: 0
+        Q-1010102: 0
+        Q-1010103: 0
+        Q-1010104: 0
+        Q-1010201: 0
+        Q-1010202: 0
+        Q-1010203: 0
+        Q-1010204: 0
+        Q-10201: 0
+        Q-10202: 0
+        Q-10203: 0
+        Q-1030301: 0
+        Q-1030302: 0
+        Q-10301: 0
+        Q-10302: 0
+        Q-10303: 0
+        Q-1040101: 0
+        Q-1040102: 0
+        Q-1040103: 0
+        Q-1040201: 0
+        Q-1040202: 0
+        Q-1040203: 0
+        Q-10401: 0
+        Q-10402: 0
+        Q-20101: 0
+        Q-20102: 0
+        Q-20201: 0
+        Q-20202: 0
+        Q-20203: 0
+        Q-20204: 0
+        Q-20205: 0
+        Q-20301: 0
+        Q-20302: 0
+        Q-20303: 0
+        Q-2040101: 0
+        Q-2040102: 0
+        Q-2040201: 0
+        Q-2040202: 0
+        Q-20501: 0
+        Q-20502: 0
+        Q-20601: 0
+        Q-20602: 0
+        Q-20603: 0
+        Q-20604: 0
+        Q-20605: 0
+        Q-20701: 0
+        Q-20702: 0
+        Q-20801: 0
+        Q-20802: 0
+        Q-20803: 0
+        Q-20804: 0
+        Q-2110201: 0
+        Q-2110202: 0
+        Q-21101: 0
+        Q-21102: 0
+        Q-21201: 0
+        Q-21202: 0
+        Q-30102: 0
+        Q-30103: 0
+        Q-30104: 0
+        Q-30105: 0
+        Q-30106: 0
+        Q-30107: 0
+        Q-3020101: 0
+        Q-3020102: 0
+        Q-30202: 0
+        Q-30203: 0
+        Q-30204: 0
+        Q-30205: 0
+        Q-30206: 0
+        Q-30207: 0
+        Q-30208: 0
+        Q-30209: 0
+        Q-30210: 0
+        Q-30301: 0
+        Q-30302: 0
+        Q-30303: 0
+        Q-10101: 0
+        Q-10102: 0
+        Q-20401: 0
+        Q-20402: 0
+        Q-30201: 0
+
+
+  - df_fillna:
+      value: 0.0
+
+  - row_eval_by_index:
+      exp_str: |
+                {{Q-10101}} = {{Q-1010101}} + {{Q-1010102}} + {{Q-1010103}} + {{Q-1010104}}
+                {{Q-10102}} = {{Q-1010201}} + {{Q-1010202}} + {{Q-1010203}} + {{Q-1010204}}
+                {{Q-101}} = {{Q-10101}} + {{Q-10102}}
+                {{Q-102}} = {{Q-10201}} + {{Q-10202}} + {{Q-10203}}
+                {{Q-10303}} = {{Q-1030301}} + {{Q-1030302}}
+                {{Q-103}} = {{Q-10301}} + {{Q-10302}} + {{Q-10303}}
+                {{Q-10401}} = {{Q-1040101}} + {{Q-1040102}} + {{Q-1040103}}
+                {{Q-10402}} = {{Q-1040201}} + {{Q-1040202}} + {{Q-1040203}}
+                {{Q-104}} = {{Q-10401}} + {{Q-10402}}
+                {{Q-201}} = {{Q-20101}} + {{Q-20102}}
+                {{Q-202}} = {{Q-20201}} + {{Q-20202}} + {{Q-20203}} + {{Q-20204}} + {{Q-20205}}
+                {{Q-203}} = {{Q-20301}} + {{Q-20302}} + {{Q-20303}}
+                {{Q-20401}} = {{Q-2040101}} + {{Q-2040102}}
+                {{Q-20402}} = {{Q-2040201}} + {{Q-2040202}}
+                {{Q-204}} = {{Q-20401}} + {{Q-20402}}
+                {{Q-205}} = {{Q-20501}} + {{Q-20502}}
+                {{Q-206}} = {{Q-20601}} + {{Q-20602}} + {{Q-20603}} + {{Q-20604}} + {{Q-20605}}
+                {{Q-207}} = {{Q-20701}} + {{Q-20702}}
+                {{Q-208}} = {{Q-20801}} + {{Q-20802}} + {{Q-20803}} + {{Q-20804}}
+                {{Q-21102}} = {{Q-2110201}} + {{Q-2110202}}
+                {{Q-211}} = {{Q-21101}} + {{Q-21102}}
+                {{Q-212}} = {{Q-21201}} + {{Q-21202}}
+                {{Q-301}} = {{Q-30102}} + {{Q-30103}} + {{Q-30104}} + {{Q-30105}} + {{Q-30106}} + {{Q-30107}}
+                {{Q-30201}} = {{Q-3020101}} + {{Q-3020102}}
+                {{Q-302}} = {{Q-30201}} + {{Q-30202}} + {{Q-30203}} + {{Q-30204}} + {{Q-30205}} + {{Q-30206}} + {{Q-30207}} + {{Q-30208}} + {{Q-30209}} + {{Q-30210}}
+                {{Q-303}} = {{Q-30301}} + {{Q-30302}} + {{Q-30303}}
+                {{QS-1000}} = {{Q-101}} + {{Q-102}} + {{Q-103}} + {{Q-104}}
+                {{QS-2000}} = {{Q-201}} + {{Q-202}} + {{Q-203}} + {{Q-204}} + {{Q-205}} + {{Q-206}} + {{Q-207}} + {{Q-208}} + {{Q-211}} + {{Q-212}} + {{Q-209}} + {{Q-210}}
+                {{QS-30101}} = {{Q-30101}}
+                {{QS-3000}} = {{Q-301}} + {{Q-302}} + {{Q-303}}
+                {{QS-4000}} = {{Q-401}} + {{Q-402}} + {{Q-403}} + {{Q-404}}
+                {{QS-7000}} = {{Q-700}} + {{Q-701}}
+      index_col: ac_code
+      exclude_cols: [ac_name]
+      target_rows:
+        - index: QS-1000
+          cols:
+            ac_name: 主营业务收入
+        - index: Q-101
+          cols:
+            ac_name: 服务业
+        - index: Q-10101
+          cols:
+            ac_name: 现代服务
+        - index: Q-1010101
+          cols:
+            ac_name: 基础收入
+        - index: Q-1010102
+          cols:
+            ac_name: KPI收入
+        - index: Q-1010103
+          cols:
+            ac_name: 政策收入
+        - index: Q-1010104
+          cols:
+            ac_name: 运营罚款收入
+        - index: Q-10102
+          cols:
+            ac_name: 商业服务
+        - index: Q-1010201
+          cols:
+            ac_name: 广告服务
+        - index: Q-1010202
+          cols:
+            ac_name: 经纪服务
+        - index: Q-1010203
+          cols:
+            ac_name: 专业服务
+        - index: Q-1010204
+          cols:
+            ac_name: 其他服务
+        - index: Q-102
+          cols:
+            ac_name: 批发和零售业
+        - index: Q-10201
+          cols:
+            ac_name: 商品销售收入
+        - index: Q-10202
+          cols:
+            ac_name: 代销商品收入
+        - index: Q-10203
+          cols:
+            ac_name: 代销商品手续费收入
+        - index: Q-103
+          cols:
+            ac_name: 交通运输、仓储业
+        - index: Q-10301
+          cols:
+            ac_name: 装卸搬运收入
+        - index: Q-10302
+          cols:
+            ac_name: 调度维修收入
+        - index: Q-10303
+          cols:
+            ac_name: 运输服务收入
+        - index: Q-1030301
+          cols:
+            ac_name: 经租服务收入
+        - index: Q-1030302
+          cols:
+            ac_name: 加盟服务收入
+        - index: Q-104
+          cols:
+            ac_name: 租赁业
+        - index: Q-10401
+          cols:
+            ac_name: 经营租赁服务
+        - index: Q-1040101
+          cols:
+            ac_name: 整租
+        - index: Q-1040102
+          cols:
+            ac_name: 新租
+        - index: Q-1040103
+          cols:
+            ac_name: 退租
+        - index: Q-10402
+          cols:
+            ac_name: 融资租赁服务
+        - index: Q-1040201
+          cols:
+            ac_name: 整租
+        - index: Q-1040202
+          cols:
+            ac_name: 新租
+        - index: Q-1040203
+          cols:
+            ac_name: 退租
+        - index: QS-2000
+          cols:
+            ac_name: 主营业务成本
+        - index: Q-201
+          cols:
+            ac_name: 一线服务费
+        - index: Q-20101
+          cols:
+            ac_name: 一线服务费
+        - index: Q-20102
+          cols:
+            ac_name: 返税
+        - index: Q-202
+          cols:
+            ac_name: 保险成本
+        - index: Q-20201
+          cols:
+            ac_name: 意外险
+        - index: Q-20202
+          cols:
+            ac_name: 工伤险
+        - index: Q-20203
+          cols:
+            ac_name: 社保公积金
+        - index: Q-20204
+          cols:
+            ac_name: 商业保险外赔偿成本
+        - index: Q-203
+          cols:
+            ac_name: 商品销售成本
+        - index: Q-20301
+          cols:
+            ac_name: 布草
+        - index: Q-20302
+          cols:
+            ac_name: 门锁
+        - index: Q-20303
+          cols:
+            ac_name: 日用品
+        - index: Q-204
+          cols:
+            ac_name: 租赁业
+        - index: Q-20401
+          cols:
+            ac_name: 经租成本
+        - index: Q-2040101
+          cols:
+            ac_name: 存量
+        - index: Q-2040102
+          cols:
+            ac_name: 新增
+        - index: Q-20402
+          cols:
+            ac_name: 融租成本
+        - index: Q-2040201
+          cols:
+            ac_name: 存量
+        - index: Q-2040202
+          cols:
+            ac_name: 新增
+        - index: Q-205
+          cols:
+            ac_name: 房屋成本
+        - index: Q-20501
+          cols:
+            ac_name: 房屋租金
+        - index: Q-20502
+          cols:
+            ac_name: 房屋其他费用
+        - index: Q-206
+          cols:
+            ac_name: 装备成本
+        - index: Q-20601
+          cols:
+            ac_name: 两轮电动车及电池
+        - index: Q-20602
+          cols:
+            ac_name: 三轮电动车及电池
+        - index: Q-20603
+          cols:
+            ac_name: 四轮车及电池
+        - index: Q-20604
+          cols:
+            ac_name: 智能柜
+        - index: Q-20605
+          cols:
+            ac_name: 一线劳动者物资装备
+        - index: Q-207
+          cols:
+            ac_name: 招聘成本
+        - index: Q-20701
+          cols:
+            ac_name: 内部招聘
+        - index: Q-20702
+          cols:
+            ac_name: 外部招聘
+        - index: Q-208
+          cols:
+            ac_name: 维护成本
+        - index: Q-20801
+          cols:
+            ac_name: 日常维护费
+        - index: Q-20802
+          cols:
+            ac_name: 半年度保养费
+        - index: Q-20803
+          cols:
+            ac_name: 年度保养费用
+        - index: Q-20804
+          cols:
+            ac_name: 维修费
+        - index: Q-211
+          cols:
+            ac_name: 运输服务成本
+        - index: Q-21101
+          cols:
+            ac_name: 车辆租金
+        - index: Q-21102
+          cols:
+            ac_name: 服务成本
+        - index: Q-2110201
+          cols:
+            ac_name: 经租服务成本
+        - index: Q-2110202
+          cols:
+            ac_name: 加盟服务成本
+        - index: Q-212
+          cols:
+            ac_name: 平台服务费
+        - index: Q-21201
+          cols:
+            ac_name: 曹操平台服务费
+        - index: Q-21202
+          cols:
+            ac_name: 聚合平台服务费
+        - index: Q-209
+          cols:
+            ac_name: 无形资产摊销
+        - index: Q-210
+          cols:
+            ac_name: 税金及附加
+        - index: QS-30101
+          cols:
+            ac_name: 运营支持费用
+        - index: Q-30101
+          cols:
+            ac_name: 二线服务费（含BD)
+        - index: QS-3000
+          cols:
+            ac_name: 管理费用
+        - index: Q-301
+          cols:
+            ac_name: 工资社保费用
+#        - index: Q-30101
+#          cols:
+#            ac_name:
+        - index: Q-30102
+          cols:
+            ac_name: 工资
+        - index: Q-30103
+          cols:
+            ac_name: 社会保险费
+        - index: Q-30104
+          cols:
+            ac_name: 公积金
+        - index: Q-30105
+          cols:
+            ac_name: 商业补充保险
+        - index: Q-30106
+          cols:
+            ac_name: 残保金
+        - index: Q-30107
+          cols:
+            ac_name: 工会经费和职工教育经费
+        - index: Q-302
+          cols:
+            ac_name: 办公管理费用
+        - index: Q-30201
+          cols:
+            ac_name: 房屋费用
+        - index: Q-3020101
+          cols:
+            ac_name: 房屋租金
+        - index: Q-3020102
+          cols:
+            ac_name: 房屋其他费用
+        - index: Q-30202
+          cols:
+            ac_name: 团建福利费
+        - index: Q-30203
+          cols:
+            ac_name: 差旅费
+        - index: Q-30204
+          cols:
+            ac_name: 市内交通费
+        - index: Q-30205
+          cols:
+            ac_name: 招待费
+        - index: Q-30206
+          cols:
+            ac_name: 办公费
+        - index: Q-30207
+          cols:
+            ac_name: 咨询费
+        - index: Q-30208
+          cols:
+            ac_name: 印花税
+        - index: Q-30209
+          cols:
+            ac_name: 佣金
+        - index: Q-30210
+          cols:
+            ac_name: 房产税
+        - index: Q-303
+          cols:
+            ac_name: 物资采购费用
+        - index: Q-30301
+          cols:
+            ac_name: 低值易耗品摊销
+        - index: Q-30302
+          cols:
+            ac_name: 固定资产折旧
+        - index: Q-30303
+          cols:
+            ac_name: 无形资产摊销
+        - index: QS-4000
+          cols:
+            ac_name: 财务费用
+        - index: Q-401
+          cols:
+            ac_name: 利息支出
+        - index: Q-402
+          cols:
+            ac_name: 利息收入
+        - index: Q-403
+          cols:
+            ac_name: 手续费
+        - index: Q-404
+          cols:
+            ac_name: 汇兑收益/(损失)
+        - index: Q-500
+          cols:
+            ac_name: 资产减值损失
+        - index: Q-600
+          cols:
+            ac_name: 投资收益
+        - index: QS-7000
+          cols:
+            ac_name: 营业外收入
+        - index: Q-800
+          cols:
+            ac_name: 营业外支出
+        - index: Q-900
+          cols:
+            ac_name: 所得税
+        - index: Q-20205
+          cols:
+            ac_name: 三方服务费
+        - index: QS-3000
+          cols:
+            ac_name: 管理费用
+
+  - df_fillna:
+      value: 0
+
+  - sort_by_columns:
+      sort_list: [ ac_code, ac_name, money ]
+
+  - sort_by_index:
+      sort_list: [QS-1000,Q-101,Q-10101,Q-1010101,Q-1010102,Q-1010103,Q-1010104,Q-10102,Q-1010201,Q-1010202,Q-1010203,Q-1010204,Q-102,Q-10201,Q-10202,Q-10203,Q-103,Q-10301,Q-10302,Q-10303,Q-1030301,Q-1030302,Q-104,Q-10401,Q-1040101,Q-1040102,Q-1040103,Q-10402,Q-1040201,Q-1040202,Q-1040203,QS-2000,Q-201,Q-20101,Q-20102,Q-202,Q-20201,Q-20202,Q-20203,Q-20204,Q-20205,Q-203,Q-20301,Q-20302,Q-20303,Q-204,Q-20401,Q-2040101,Q-2040102,Q-20402,Q-2040201,Q-2040202,Q-205,Q-20501,Q-20502,Q-206,Q-20601,Q-20602,Q-20603,Q-20604,Q-20605,Q-207,Q-20701,Q-20702,Q-208,Q-20801,Q-20802,Q-20803,Q-20804,Q-211,Q-21101,Q-21102,Q-2110201,Q-2110202,Q-212,Q-21201,Q-21202,Q-209,Q-210,QS-30101,Q-30101,QS-3000,Q-301,Q-30102,Q-30103,Q-30104,Q-30105,Q-30106,Q-30107,Q-302,Q-30201,Q-3020101,Q-3020102,Q-30202,Q-30203,Q-30204,Q-30205,Q-30206,Q-30207,Q-30208,Q-30209,Q-30210,Q-303,Q-30301,Q-30302,Q-30303,QS-4000,Q-401,Q-402,Q-403,Q-404,Q-500,Q-600,QS-7000,Q-800,Q-900]
+
+  - row_money_format_by_index:
+      index_rows: [
+          QS-1000,Q-101,Q-10101,Q-1010101,Q-1010102,Q-1010103,Q-1010104,Q-10102,Q-1010201,Q-1010202,Q-1010203,
+          Q-1010204,Q-102,Q-10201,Q-10202,Q-10203,Q-103,Q-10301,Q-10302,Q-10303,Q-1030301,Q-1030302,Q-104,Q-10401,
+          Q-1040101,Q-1040102,Q-1040103,Q-10402,Q-1040201,Q-1040202,Q-1040203,QS-2000,Q-201,Q-20101,Q-20102,Q-202,
+          Q-20201,Q-20202,Q-20203,Q-20204,Q-203,Q-20301,Q-20302,Q-20303,Q-204,Q-20401,Q-2040101,Q-2040102,Q-20402,
+          Q-2040201,Q-2040202,Q-205,Q-20501,Q-20502,Q-206,Q-20601,Q-20602,Q-20603,Q-20604,Q-20605,Q-207,Q-20701,
+          Q-20702,Q-208,Q-20801,Q-20802,Q-20803,Q-20804,Q-211,Q-21101,Q-21102,Q-2110201,Q-2110202,Q-212,Q-21201,
+          Q-21202,Q-209,Q-210,QS-30101,QS-3000,Q-301,Q-30102,Q-30103,Q-30104,Q-30105,Q-30106,Q-30107,Q-30101,
+          Q-302,Q-30201,Q-3020101,Q-3020102,Q-30202,Q-30203,Q-30204,Q-30205,Q-30206,Q-30207,Q-30208,Q-30209,Q-30210,
+          Q-303,Q-30301,Q-30302,Q-30303,QS-4000,Q-401,Q-402,Q-403,Q-404,Q-500,Q-600,QS-7000,Q-800,Q-900,Q-20205
+      ]
+
+  - df_rename_columns:
+      - ac_code: 科目编号
+        ac_name: 科目名称
+        money: 合计
+
+  - df_fillna:
+      value: --
+datasource:
+  query: {}
+  datasource_type: qcode_biz_dataset

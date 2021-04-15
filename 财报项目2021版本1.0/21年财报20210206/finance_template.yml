@@ -1,0 +1,841 @@
+##########################################################################################
+# =------------------------------      模板配置说明      ----------------------------------#
+##########################################################################################
+#code-logistics: # 模板id
+#  name: code-外卖
+#  cate: code
+#  desc: code-外卖
+#  state: 100
+#  query_form:
+#    style: normal | light # 表单样式
+#    form_items:
+#      - name: 归属周期
+#        key: book_month
+#        editor: 'x_book_month_select'
+#        multi: False
+#        type: select
+#      - name: 场景
+#        key: industry_id
+#        editor: 'x_industry_select'
+#        init_value: None
+#        options:
+#          - children: AAA
+#            value: BBB
+#        multi: True
+#        type: select
+#      - name: 平台
+#        key: platform_id
+#        editor: 'x_platform_select'
+#        type: select
+#      - name: 项目
+#        key: project_id
+#        editor: 'x_project_select'
+#        type: select
+#      - name: 主体
+#        key: supplier_id
+#        editor: 'x_supplier_select'
+#        type: select
+#      - name: 区域
+#        key: region_id
+#        editor: 'x_region_select'
+#        type: select
+#      - name: 城市
+#        key: city_code
+#        editor: 'x_city_select'
+#        type: select
+#      - name: team类型
+#        key: team_cate
+#        editor: 'team_cate_select'
+#        type: select
+#      - name: code类型
+#        key: code_type
+#        editor: 'x_code_type_radios'
+#        type: radio_group
+#      - name: 事业部
+#        key: org_bu
+#        editor: 'org_bu_input'
+#        type: input
+#      - name: 分部
+#        key: org_bu_division
+#        editor: 'org_bu_division_input'
+#        type: input
+#  display_area:  # 展示区
+#    layout:
+#      style: tab | card
+#      cols: 1
+#      style: tab
+#    databooks:
+#      - title: 项目维度
+#        title: chart
+#        key: project
+#        databook_yml: financial_2021_takeout.yml
+#        databook_params: {}
+#        sort: 1
+#        query_form: []   # 自定义查询项
+#      - title: 主体维度
+#        key: supplier
+#        databook_yml: financial_2021_takeout.yml
+#        databook_params: {}
+#        sort: 2
+#      - title: 区域维度
+#        key: region
+#        databook_yml: financial_2021_takeout.yml
+#        databook_params: {}
+#        sort: 3
+#      - title: 城市维度
+#        key: city
+#        databook_yml: financial_2021_takeout.yml
+#        databook_params: {}
+#        sort: 4
+#      - title: code维度
+#        key: code
+#        databook_yml: financial_2021_takeout.yml
+#        databook_params: {}
+#        sort: 5
+# ====================================================
+
+
+##########################################################################################
+# =------------------------------      Code类财报       ----------------------------------#
+##########################################################################################
+# ============ code-外卖 ============
+code-logistics:
+  name: code-外卖
+  cate: code
+  desc: code-外卖级别财报
+  icon: finance_icon_1.png
+  state: 100
+  sort: 1
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        type: select
+      - name: 场景
+        key: industry_id
+        editor: 'x_industry_select'
+        init_value: wai_mai
+        select_options:
+          - children: 外卖
+            value: wai_mai
+        type: select
+      - name: 平台
+        key: platform_id
+        editor: 'x_platform_select'
+        select_options:
+        type: select
+      - name: 项目
+        key: project_id
+        editor: 'x_project_select'
+        select_options:
+          - children: 外卖专送
+            value: 5fef0eac968939d2ba0a957f
+          - children: 星巴克
+            value: 5fef0eac968939d2ba0a958d
+          - children: 机场
+            value: 5fef0eac968939d2ba0a9583
+          - children: 智能柜
+            value: 5fef0eac968939d2ba0a958f
+          - children: 盒马
+            value: 5fef0eac968939d2ba0a9581
+          - children: 必胜客
+            value: 5fef0eac968939d2ba0a9569
+          - children: 肯德基
+            value: 5fef0eac968939d2ba0a956b
+          - children: 麦当劳
+            value: 5fef0eac968939d2ba0a956d
+          - children: 瑞幸咖啡
+            value: 5fef0eac968939d2ba0a956f
+          - children: 集约配送
+            value: 5fef0eac968939d2ba0a9585
+          - children: 买菜
+            value: 5fef0eac968939d2ba0a9587
+          - children: 跑腿
+            value: 5fef0eac968939d2ba0a9589
+          - children: 昔客堡
+            value: 5fef0eac968939d2ba0a958b
+        type: select
+      - name: 主体
+        key: supplier_id
+        editor: 'x_supplier_select'
+        select_options:
+          - children: 海南新盈
+            value: 5a62f3dfce6d2a295a472022
+          - children: 上海易即达
+            value: 5b9738f4ce6d2abdaed16a8e
+          - children: 南通润达
+            value: 5b9738f5ce6d2abdaed16e09
+          - children: 宁波兴达
+            value: 5c8f38ae887d1f1c43bfc06e
+          - children: 上海趣活
+            value: 5c94d4f7887d1f35ef5fb721
+          - children: 宁波嗷嗷
+            value: 5e02cc10887d1f5da5c553df
+          - children: 海南趣活
+            value: 5f4f0d5f887d1f7a81f73518
+        type: select
+      - name: 区域
+        key: region_id
+        editor: 'x_region_select'
+        type: select
+      - name: 城市
+        key: city_code
+        editor: 'x_city_select'
+        type: select
+      - name: code类型
+        key: code_type
+        editor: 'x_code_type_radios'
+        type: radio_group
+  display_area:
+    layout:
+      style: tab
+    databooks:
+      - title: 项目维度
+        key: project
+        databook_yml: code/logistics/project.yml
+        databook_params: {}
+        sort: 1
+      - title: 主体维度
+        key: supplier
+        databook_yml: code/logistics/supplier.yml
+        databook_params: {}
+        sort: 2
+      - title: 区域维度
+        key: region
+        databook_yml: code/logistics/region.yml
+        databook_params: {}
+        sort: 3
+      - title: 城市维度
+        key: city
+        databook_yml: code/logistics/city.yml
+        databook_params: {}
+        sort: 4
+      - title: code维度
+        key: code
+        databook_yml: code/logistics/code.yml
+        databook_params: {}
+        sort: 5
+
+# ============ 保洁_橙途 ============
+code-chengtu:
+  name: code-橙途
+  cate: code
+  desc: code-橙途级别财报
+  icon: finance_icon_5.png
+  state: 100
+  sort: 2
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        type: select
+      - name: 场景
+        key: industry_id
+        editor: 'x_industry_select'
+        init_value: bao_jie
+        select_options:
+          - children: 保洁
+            value: bao_jie
+        type: select
+      - name: 平台
+        key: platform_id
+        editor: 'x_platform_select'
+        select_options:
+        type: select
+      - name: 项目
+        key: project_id
+        editor: 'x_project_select'
+        select_options:
+          - children: 代运营
+            value: 5fef0eac968939d2ba0a9577
+          - children: 商业保洁
+            value: 5fef0eac968939d2ba0a957b
+          - children: 保洁
+            value: 5fef0eac968939d2ba0a9579
+        type: select
+      - name: 主体
+        key: supplier_id
+        editor: 'x_supplier_select'
+        select_options:
+          - children: 海口橙途
+            value: 5f61e853887d1f7e79ee77c3
+          - children: 上海净欣
+            value: 5fcf1b5830d420339ceb93ac
+          - children: 厦门来来蚂蚁天下
+            value: 5fbf889130d4200def85c8e0
+        type: select
+      - name: 区域
+        key: region_id
+        editor: 'x_region_select'
+        type: select
+      - name: 城市
+        key: city_code
+        editor: 'x_city_select'
+        type: select
+      - name: code类型
+        key: code_type
+        editor: 'x_code_type_radios'
+        type: radio_group
+  display_area:
+    layout:
+      style: tab
+    databooks:
+      - title: 项目维度
+        key: project
+        databook_yml: code/clean_chengtu/project.yml
+        databook_params: {}
+        sort: 1
+      - title: 主体维度
+        key: supplier
+        databook_yml: code/clean_chengtu/supplier.yml
+        databook_params: {}
+        sort: 2
+      - title: 区域维度
+        key: region
+        databook_yml: code/clean_chengtu/region.yml
+        databook_params: {}
+        sort: 3
+      - title: 城市维度
+        key: city
+        databook_yml: code/clean_chengtu/city.yml
+        databook_params: {}
+        sort: 4
+      - title: code维度
+        key: code
+        databook_yml: code/clean_chengtu/code.yml
+        databook_params: {}
+        sort: 5
+
+# ============ 保洁_来来 ============
+code-lailai:
+  name: code-来来
+  cate: code
+  desc: code-来来级别财报
+  icon: finance_icon_5.png
+  state: 100
+  sort: 3
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        type: select
+      - name: 场景
+        key: industry_id
+        editor: 'x_industry_select'
+        init_value: bao_jie
+        select_options:
+          - children: 保洁
+            value: bao_jie
+        type: select
+      - name: 平台
+        key: platform_id
+        editor: 'x_platform_select'
+        select_options:
+        type: select
+      - name: 项目
+        key: project_id
+        editor: 'x_project_select'
+        select_options:
+          - children: KFC打烊
+            value: 5fef0eac968939d2ba0a9599
+          - children: 麦当劳打烊
+            value: 5fef0eac968939d2ba0a959b
+          - children: 酒店保洁
+            value: 5fef0eac968939d2ba0a959d
+          - children: 非酒店保洁
+            value: 5fef0eac968939d2ba0a959f
+        type: select
+      - name: 主体
+        key: supplier_id
+        editor: 'x_supplier_select'
+        select_options:
+          - children: 宁波大盈
+            value: 5d8dda24887d1f260e4b27a6
+          - children: 来来信息科技（深圳）
+            value: 5f73ee44887d1f4441b61e42
+        type: select
+      - name: 区域
+        key: region_id
+        editor: 'x_region_select'
+        type: select
+      - name: 城市
+        key: city_code
+        editor: 'x_city_select'
+        type: select
+      - name: code类型
+        key: code_type
+        editor: 'x_code_type_radios'
+        type: radio_group
+  display_area:
+    layout:
+      style: tab
+    databooks:
+      - title: 项目维度
+        key: project
+        databook_yml: code/clean_lailai/project.yml
+        databook_params: {}
+        sort: 1
+      - title: 主体维度
+        key: supplier
+        databook_yml: code/clean_lailai/supplier.yml
+        databook_params: {}
+        sort: 2
+      - title: 区域维度
+        key: region
+        databook_yml: code/clean_lailai/region.yml
+        databook_params: {}
+        sort: 3
+      - title: 城市维度
+        key: city
+        databook_yml: code/clean_lailai/city.yml
+        databook_params: {}
+        sort: 4
+      - title: code维度
+        key: code
+        databook_yml: code/clean_lailai/code.yml
+        databook_params: {}
+        sort: 5
+
+# ============ 出行_单车 ============
+code-bicycle:
+  name: code-单车
+  cate: code
+  desc: code-单车级别财报
+  icon: finance_icon_4.png
+  state: 100
+  sort: 4
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        type: select
+      - name: 场景
+        key: industry_id
+        editor: 'x_industry_select'
+        init_value: chu_xing
+        select_options:
+          - children: 出行
+            value: chu_xing
+        type: select
+      - name: 平台
+        key: platform_id
+        editor: 'x_platform_select'
+        select_options:
+        type: select
+      - name: 项目
+        key: project_id
+        editor: 'x_project_select'
+        select_options:
+          - children: 哈啰
+            value: 5fef0eac968939d2ba0a9571
+          - children: 青桔
+            value: 5fef0eac968939d2ba0a9573
+          - children: GoFun
+            value: 5fef0eac968939d2ba0a9575
+          - children: 美团单车
+            value: 5fef0eac968939d2ba0a9591
+        type: select
+      - name: 主体
+        key: supplier_id
+        editor: 'x_supplier_select'
+        type: select
+      - name: 区域
+        key: region_id
+        editor: 'x_region_select'
+        type: select
+      - name: 城市
+        key: city_code
+        editor: 'x_city_select'
+        type: select
+      - name: code类型
+        key: code_type
+        editor: 'x_code_type_radios'
+        type: radio_group
+  display_area:
+    layout:
+      style: tab
+    databooks:
+      - title: 项目维度
+        key: project
+        databook_yml: code/travel_bicycle/project.yml
+        databook_params: {}
+        sort: 1
+      - title: 主体维度
+        key: supplier
+        databook_yml: code/travel_bicycle/supplier.yml
+        databook_params: {}
+        sort: 2
+      - title: 区域维度
+        key: region
+        databook_yml: code/travel_bicycle/region.yml
+        databook_params: {}
+        sort: 3
+      - title: 城市维度
+        key: city
+        databook_yml: code/travel_bicycle/city.yml
+        databook_params: {}
+        sort: 4
+      - title: code维度
+        key: code
+        databook_yml: code/travel_bicycle/code.yml
+        databook_params: {}
+        sort: 5
+
+# ============ 出行_网约车 ============
+code-taxi:
+  name: code-网约车
+  cate: code
+  desc: code-网约车级别财报
+  icon: finance_icon_4.png
+  state: 100
+  sort: 5
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        multi: False
+        type: select
+      - name: 场景
+        key: industry_id
+        editor: 'x_industry_select'
+        init_value: chu_xing
+        select_options:
+          - children: 出行
+            value: chu_xing
+        type: select
+      - name: 平台
+        key: platform_id
+        editor: 'x_platform_select'
+        select_options:
+        type: select
+      - name: 项目
+        key: project_id
+        editor: 'x_project_select'
+        select_options:
+          - children: 滴滴网约车
+            value: 5fef0eac968939d2ba0a9593
+          - children: 曹操出行
+            value: 5fef0eac968939d2ba0a9595
+          - children: 橙心优选
+            value: 5fef0eac968939d2ba0a9597
+        type: select
+      - name: 主体
+        key: supplier_id
+        editor: 'x_supplier_select'
+        select_options:
+          - children: 江西优客
+            value: 5ce296e5887d1f65604c5265
+          - children: 海南趣泰
+            value: 5febfa1330d420491fce0083
+          - children: 江西优客
+            value: 5ce296e5887d1f65604c5265
+        type: select
+      - name: 区域
+        key: region_id
+        editor: 'x_region_select'
+        type: select
+      - name: 城市
+        key: city_code
+        editor: 'x_city_select'
+        type: select
+      - name: code类型
+        key: code_type
+        editor: 'x_code_type_radios'
+        type: radio_group
+  display_area:
+    layout:
+      style: tab
+    databooks:
+      - title: 项目维度
+        key: project
+        databook_yml: code/travel_taxi/project.yml
+        databook_params: {}
+        sort: 1
+      - title: 主体维度
+        key: supplier
+        databook_yml: code/travel_taxi/supplier.yml
+        databook_params: {}
+        sort: 2
+      - title: 区域维度
+        key: region
+        databook_yml: code/travel_taxi/region.yml
+        databook_params: {}
+        sort: 3
+      - title: 城市维度
+        key: city
+        databook_yml: code/travel_taxi/city.yml
+        databook_params: {}
+        sort: 4
+      - title: code维度
+        key: code
+        databook_yml: code/travel_taxi/code.yml
+        databook_params: {}
+        sort: 5
+
+# ============ - 出行_其他 - ============
+code-other:
+  name: code-其他
+  cate: code
+  desc: code-其他级别财报
+  icon: finance_icon_3.png
+  state: 100
+  sort: 6
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        multi: False
+        type: select
+      - name: 场景
+        key: industry_id
+        editor: 'x_industry_select'
+        init_value: qi_ta
+        select_options:
+          - children: 其他
+            value: qi_ta
+        type: select
+      - name: 平台
+        key: platform_id
+        editor: 'x_platform_select'
+        select_options:
+        type: select
+      - name: 项目
+        key: project_id
+        editor: 'x_project_select'
+        select_options:
+          - children: 薪资贷
+            value: 5fef0eac968939d2ba0a95a1
+          - children: 人力资源供应
+            value: 5fef0eac968939d2ba0a957d
+        type: select
+      - name: 主体
+        key: supplier_id
+        editor: 'x_supplier_select'
+        select_options:
+          - children: 北京趣活
+            value: 5f3cd3d3887d1f7fa28eec38
+          - children: 沈阳新晨
+            value: 5febf9bc30d420491fcdfef4
+        type: select
+      - name: 区域
+        key: region_id
+        editor: 'x_region_select'
+        type: select
+      - name: 城市
+        key: city_code
+        editor: 'x_city_select'
+        type: select
+      - name: code类型
+        key: code_type
+        editor: 'x_code_type_radios'
+        type: radio_group
+  display_area:
+    layout:
+      style: tab
+    databooks:
+      - title: 项目维度
+        key: project
+        databook_yml: code/other/project.yml
+        databook_params: {}
+        sort: 1
+      - title: 主体维度
+        key: supplier
+        databook_yml: code/other/supplier.yml
+        databook_params: {}
+        sort: 2
+      - title: 区域维度
+        key: region
+        databook_yml: code/other/region.yml
+        databook_params: {}
+        sort: 3
+      - title: 城市维度
+        key: city
+        databook_yml: code/other/city.yml
+        databook_params: {}
+        sort: 4
+      - title: code维度
+        key: code
+        databook_yml: code/other/code.yml
+        databook_params: {}
+        sort: 5
+
+##########################################################################################
+# =------------------------------      Team类财报       ----------------------------------#
+##########################################################################################
+# ============ team类 ============
+team:
+  name: team类-team
+  cate: team
+  desc: team类-team级别财报
+  icon: finance_icon_3.png
+  state: 100
+  sort: 1
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        multi: False
+        type: select
+      - name: team类型
+        key: team_cate
+        editor: 'team_cate_select'
+        type: select
+  display_area:
+    layout:
+      style: tab
+    databooks:
+      - title: team维度
+        key: team
+        databook_yml: team/team.yml
+        databook_params: {}
+        sort: 1
+      - title: team事业部维度
+        key: business
+        databook_yml: team/business.yml
+        databook_params: {}
+        sort: 2
+      - title: team分部维度
+        key: division
+        databook_yml: team/division.yml
+        databook_params: {}
+        sort: 3
+
+##########################################################################################
+# =------------------------------         汇总类        ----------------------------------#
+##########################################################################################
+# ============ 汇总类-集团 ============
+summary-group:
+  name: 汇总类-集团
+  cate: summary
+  desc: 汇总类-集团级别财报
+  icon: finance_icon_2.png
+  state: 100
+  sort: 1
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        type: select
+  display_area:
+    layout:
+      style: card
+      cols: 1
+    databooks:
+      - title: code
+        key: code
+        databook_yml: summary/group_code.yml
+        databook_params: {}
+        sort: 1
+      - title: team
+        key: team
+        databook_yml: summary/group_team.yml
+        databook_params: { }
+        sort: 2
+
+# ============ 汇总类-事业部&分部 ============
+summmary-org-bu:
+  name: 汇总类-事业部&分部
+  cate: summary
+  desc: 汇总类-事业部&分部级别财报
+  icon: finance_icon_2.png
+  state: 100
+  sort: 2
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        type: select
+      - name: 事业部
+        key: org_bu
+        editor: 'org_bu_select'
+        type: select
+      - name: 分部
+        key: org_bu_division
+        editor: 'org_bu_division_select'
+        type: select
+  display_area:
+    layout:
+      style: card
+    databooks:
+      - title: code维度
+        key: code
+        databook_yml: summmary/org_code.yml
+        databook_params: {}
+        sort: 1
+      - title: 事业部维度
+        key: business
+        databook_yml: summmary/org_business.yml
+        databook_params: { }
+        sort: 2
+      - title: 分部维度
+        key: division
+        databook_yml: summmary/org_division.yml
+        databook_params: { }
+        sort: 3
+      - title: team维度
+        key: team
+        databook_yml: summmary/org_team.yml
+        databook_params: { }
+        sort: 4
+
+# ============ 汇总类-职能 ============
+summary-company:
+  name: 汇总类-职能
+  cate: summary
+  desc: 汇总类-职能级别财报
+  icon: finance_icon_3.png
+  state: 100
+  sort: 3
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        type: select
+  display_area:
+    layout:
+      style: card
+    databooks:
+      - title: code
+        key: code
+        databook_yml: summary/company_code.yml
+        databook_params: {}
+        sort: 1
+      - title: team
+        key: team
+        databook_yml: summary/company_team.yml
+        databook_params: { }
+        sort: 2
+
+# ============ 汇总类-科目汇总 ===========
+summary-ac:
+  name: 汇总类-科目汇总
+  cate: summary
+  desc: 汇总类-科目汇总级别财报
+  icon: finance_icon_5.png
+  state: 100
+  sort: 4
+  query_form:
+    form_items:
+      - name: 归属周期
+        key: book_month
+        editor: 'x_book_month_select'
+        type: select
+  display_area:
+    layout:
+      style: card
+    databooks:
+      - title: 科目汇总
+        key: ac
+        databook_yml: summary/ac.yml
+        databook_params: { }
+        sort: 1

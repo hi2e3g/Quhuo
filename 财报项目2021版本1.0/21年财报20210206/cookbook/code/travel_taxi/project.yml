@@ -1,0 +1,626 @@
+dataset_vis:
+  vis_grid:
+    columns: []
+    row_sort:
+      sort_orders: []
+      sort_by: index
+dataset_pipeline:
+
+  - df_select:
+      - '[industry_id] == @v1 & [platform_id] in @v2'
+      - v1: chu_xing
+        v2: [didi, caocaochuxing]
+  - set_meta_days_by_column:
+      src_column: book_month
+      dest_column: month_days
+  - push_dataset:
+      key: mini
+  - df_groupby:
+      by: [ac_code]
+  - df_sum:
+      column: [money]
+  - df_reset_index: [ ]
+  - df_rename_columns:
+      - money: 合计
+  - push_dataset:
+      key: sum_mini
+
+  - use_df:
+      key: mini
+  - df_groupby:
+      by: [platform_name, project_name,book_month]
+  - df_median:
+      column: month_days
+  - df_reset_index: [ ]
+  - df_groupby:
+      by: [platform_name, project_name,]
+  - df_sum:
+      column: month_days
+  - df_reset_index: []
+  - add_cols:
+      - ac_code: month_days
+  - df_groupby:
+      by: [ac_code]
+  - df_median:
+      column: month_days
+  - df_reset_index: []
+  - df_rename_columns:
+      - month_days: 合计
+  - stash_push_df: []
+  - use_df:
+      key: sum_mini
+  - stash_push_df: []
+  - stash_concat_df:
+      drop_stash: True
+  - push_dataset:
+      key: sum_mini
+
+  - use_df:
+      key: mini
+  - df_groupby:
+      by: [platform_name, project_name, book_month]
+  - df_median:
+      column: month_days
+  - df_reset_index: []
+  - df_rename_columns:
+      - month_days: money
+  - df_groupby:
+      by: [platform_name, project_name,]
+  - df_sum:
+      column: money
+  - df_reset_index: []
+  - add_cols:
+      - ac_code: month_days
+  - add_cols:
+      - ac_name: month_days
+  - stash_push_df: []
+  - use_df:
+      key: mini
+  - stash_push_df: []
+  - stash_concat_df:
+      drop_stash: True
+  - pivot_table:
+      values: money
+      index: [ac_code, ac_name]
+      columns: [platform_name, project_name,]
+      aggfunc: sum
+  - stash_push_df: []
+  - use_df:
+      key: sum_mini
+  - stash_push_df: []
+  - stash_join_df:
+      on: [ ac_code ]
+      how: right
+      drop_stash: true
+
+  - row_pad_value_by_index:
+      index_col: ac_code
+      pad_values:
+        Q-1010101: 0
+        Q-1010102: 0
+        Q-1010103: 0
+        Q-1010104: 0
+        Q-1010202: 0
+        Q-1010203: 0
+        Q-1010204: 0
+        Q-10201: 0
+        Q-10202: 0
+        Q-10203: 0
+        Q-10301: 0
+        Q-10302: 0
+        Q-102: 0
+        Q-20101: 0
+        Q-20201: 0
+        Q-20202: 0
+        Q-20203: 0
+        Q-20204: 0
+        Q-20501: 0
+        Q-20502: 0
+        Q-20601: 0
+        Q-20602: 0
+        Q-20603: 0
+        Q-20604: 0
+        Q-20605: 0
+        Q-20701: 0
+        Q-20702: 0
+        Q-202: 0
+        Q-203: 0
+        Q-205: 0
+        Q-206: 0
+        Q-207: 0
+        Q-208: 0
+        Q-701: 0
+        C-101: 0
+        C-103: 0
+        C-104: 0
+        C-201: 0
+        C-202: 0
+        C-203: 0
+        C-204: 0
+        C-401: 0
+        C-402: 0
+        C-404: 0
+        C-405: 0
+        C-406: 0
+        C-407: 0
+        C-408: 0
+        C-409: 0
+        C-410: 0
+        C-411: 0
+        C-412: 0
+        C-413: 0
+        C-414: 0
+        C-415: 0
+        C-416: 0
+        C-501: 0
+        C-502: 0
+        C-503: 0
+        C-504: 0
+        C-505: 0
+        C-506: 0
+        C-507: 0
+        C-508: 0
+        C-601: 0
+        C-602: 0
+        C-603: 0
+        Q-10102: 0
+        Q-10303: 0
+        Q-20401: 0
+        Q-20402: 0
+        Q-21102: 0
+        Q-21201: 0
+        Q-21202: 0
+        Q-1040101: 0
+        Q-1040102: 0
+        Q-1040103: 0
+        Q-1040201: 0
+        Q-1040202: 0
+        Q-1040203: 0
+        Q-10401: 0
+        Q-10402: 0
+        C-301: 0
+        C-302: 0
+        C-303: 0
+        C-304: 0
+        C-305: 0
+        C-306: 0
+        C-307: 0
+        C-308: 0
+        C-309: 0
+        C-310: 0
+        C-311: 0
+        Q-2040101: 0
+        Q-2040102: 0
+        Q-2040103: 0
+        Q-2040201: 0
+        Q-2040202: 0
+        Q-1030301: 0
+        Q-1030302: 0
+        Q-1010201: 0
+        Q-21101: 0
+        Q-211: 0
+        Q-212: 0
+        Q-20801: 0
+        Q-20802: 0
+        Q-20803: 0
+        Q-20804: 0
+        Q-2110201: 0
+        Q-2110202: 0
+
+  - df_fillna:
+      value: 0.0
+
+  - row_eval_by_index:
+      exp_str: |
+                {{Q-10401}} = {{Q-1040101}} + {{Q-1040102}} + {{Q-1040103}}
+                {{Q-10402}} = {{Q-1040201}} + {{Q-1040202}} + {{Q-1040203}}
+                {{Q-10303}} = {{Q-1030301}} + {{Q-1030302}}
+                {{Q-10102}} = {{Q-1010201}} + {{Q-1010202}} + {{Q-1010203}} + {{Q-1010204}}
+                {{QS-104013}} = {{Q-10401}} + {{Q-10402}} + {{Q-10102}} + {{Q-10303}}
+                {{CS-3013}} = {{C-301}} + {{C-302}} + {{C-303}}
+                {{CS-3046}} = {{C-304}} + {{C-305}} + {{C-306}}
+                {{QAH-10401}} = {{Q-10401}} / {{CS-3013}}
+                {{QAH-1040101}} = {{Q-1040101}} / {{C-301}}
+                {{QAH-1040102}} = {{Q-1040102}} / {{C-302}}
+                {{QAH-1040103}} = {{Q-1040103}} / {{C-303}}
+                {{QAH-10402}} = {{Q-10402}} / {{CS-3046}}
+                {{QAH-1040201}} = {{Q-1040201}} / {{C-304}}
+                {{QAH-1040202}} = {{Q-1040202}} / {{C-305}}
+                {{QAH-1040203}} = {{Q-1040203}} / {{C-306}}
+                {{Q-21102}} = {{Q-2110201}} + {{Q-2110202}}
+                {{Q-211}} = {{Q-21101}} + {{Q-21102}}
+                {{Q-212}} = {{Q-21201}} + {{Q-21202}}
+                {{Q-20401}} = {{Q-2040101}} + {{Q-2040102}}
+                {{Q-20402}} = {{Q-2040201}} + {{Q-2040202}}
+                {{Q-208}} = {{Q-20801}} + {{Q-20802}} + {{Q-20803}} + {{Q-20804}}
+                {{QS-204010}} = {{Q-211}} + {{Q-212}} + {{Q-20401}} + {{Q-20402}} + {{Q-208}}
+                {{CS-3078}} = {{C-307}} + {{C-308}}
+                {{CS-30910}} = {{C-309}} + {{C-310}}
+                {{CS-3016}} = {{CS-3013}} + {{CS-3046}}
+                {{QSAH-104013}} = {{QS-104013}} / {{CS-3016}}
+                {{QAH-1040}} = {{QS-204010}} / {{CS-3016}}
+                {{CIP-204010}} = {{QS-204010}} / {{QS-104013}}
+                {{QA-20401}} = {{Q-20401}} / {{CS-3078}}
+                {{CIP-20401}} = {{Q-20401}} / {{QS-104013}}
+                {{CCP-20401}} = {{Q-20401}} / {{QS-204010}}
+                {{QAH-2040101}} = {{Q-2040101}} / {{C-307}}
+                {{QAH-2040102}} = {{Q-2040102}} / {{C-308}}
+                {{QAH-20402}} = {{Q-20402}} / {{CS-30910}}
+                {{IPQ-20402}} = {{Q-20402}} / {{QS-104013}}
+                {{CPQ-20402}} = {{Q-20402}} / {{QS-204010}}
+                {{QAH-2040201}} = {{Q-2040201}} / {{C-309}}
+                {{QAH-2040202}} = {{Q-2040202}} / {{C-310}}
+                {{QAH-21101}} = {{Q-21101}} / {{C-311}}
+                {{IPQ-211}} = {{Q-211}} / {{QS-104013}}
+                {{CPQ-211}} = {{Q-211}} / {{QS-204010}}
+                {{IPQ-212}} = {{Q-212}} / {{QS-104013}}
+                {{CPQ-212}} = {{Q-212}} / {{QS-204010}}
+                {{QAH-208}} = {{Q-208}} / {{CS-3016}}
+                {{IPQ-208}} = {{Q-208}} / {{QS-104013}}
+                {{CPQ-208}} = {{Q-208}} / {{QS-204010}}
+                {{QAH-20801}} = {{Q-20801}} / {{CS-3016}}
+                {{QAH-20802}} = {{Q-20802}} / {{CS-3016}}
+                {{QAH-20803}} = {{Q-20803}} / {{CS-3016}}
+                {{QAH-20804}} = {{Q-20804}} / {{CS-3016}}
+                {{QS-1}} = {{QS-104013}} + {{Q-701}} - {{QS-204010}}
+                {{IPQS-1}} = {{QS-1}} / {{QS-104013}}
+
+      index_col: ac_code
+      exclude_cols: [ac_name]
+      target_rows:
+        - index: Q-104013
+          cols:
+            ac_name: 主营业务收入
+        - index: Q-10401
+          cols:
+            ac_name: 经营租赁服务
+        - index: Q-10402
+          cols:
+            ac_name: 融资租赁服务
+        - index: QS-104013
+          cols:
+            ac_name: 主营业务收入
+        - index: CS-3013
+          cols:
+            ac_name: 经营租出车辆数
+        - index: CS-3046
+          cols:
+            ac_name: 融资租出车辆数
+        - index: CS-3016
+          cols:
+            ac_name: 总计租出车辆数
+        - index: QSAH-104013
+          cols:
+            ac_name: 总计租出车单车收入
+        - index: QAH-10401
+          cols:
+            ac_name: 经营租出车单车收入
+        - index: QAH-1040101
+          cols:
+            ac_name: 经营租出车整租单车租金收入
+        - index: QAH-1040102
+          cols:
+            ac_name: 经营租出车新租单车租金收入
+        - index: QAH-1040103
+          cols:
+            ac_name: 经营租出车退租单车租金收
+        - index: QAH-10402
+          cols:
+            ac_name: 融资租赁单车收入
+        - index: QAH-1040201
+          cols:
+            ac_name: 融资租赁整租单车租金收入
+        - index: QAH-1040202
+          cols:
+            ac_name: 融资租赁新租单车租金收入
+        - index: QAH-1040203
+          cols:
+            ac_name: 融资租赁退租单车租金收入
+        - index: Q-10303
+          cols:
+            ac_name: 运输服务收入
+        - index: Q-10102
+          cols:
+            ac_name: 商业服务
+        - index: Q-211
+          cols:
+            ac_name: 运输服务成本
+        - index: Q-212
+          cols:
+            ac_name: 平台服务费
+        - index: QS-204010
+          cols:
+            ac_name: 主营业务成本
+        - index: Q-20401
+          cols:
+            ac_name: 经租成本
+        - index: CS-3078
+          cols:
+            ac_name: 经营租入车辆数
+        - index: QAH-1040
+          cols:
+            ac_name: 总计租入单车收入
+        - index: CIP-204010
+          cols:
+            ac_name: 主营业务成本收入占比
+        - index: QA-20401
+          cols:
+            ac_name: 经租单车成本
+        - index: CIP-20401
+          cols:
+            ac_name: 经租成本收入占比
+        - index: CCP-20401
+          cols:
+            ac_name: 经租成本成本占比
+        - index: QAH-2040101
+          cols:
+            ac_name: 存量单车租金成本
+        - index: QAH-2040102
+          cols:
+            ac_name: 新增单车租金成本
+        - index: Q-20402
+          cols:
+            ac_name: 融租成本
+        - index: CS-30910
+          cols:
+            ac_name: 融资租入车辆数
+        - index: QAH-20402
+          cols:
+            ac_name: 融租单车成本
+        - index: IPQ-20402
+          cols:
+            ac_name: 融租成本收入占比
+        - index: CPQ-20402
+          cols:
+            ac_name: 融租成本成本占比
+        - index: QAH-2040201
+          cols:
+            ac_name: 融租存量单车租金成本
+        - index: QAH-2040202
+          cols:
+            ac_name: 融租新增单车租金成本
+        - index: QAH-21101
+          cols:
+            ac_name: 运输服务单车租金成本
+        - index: IPQ-211
+          cols:
+            ac_name: 运输服务成本收入占比
+        - index: CPQ-211
+          cols:
+            ac_name: 运输服务成本成本占比
+        - index: IPQ-212
+          cols:
+            ac_name: 平台服务费务收入占比
+        - index: CPQ-212
+          cols:
+            ac_name: 平台服务费务成本占比
+        - index: Q-208
+          cols:
+            ac_name: 维护成本
+        - index: QAH-208
+          cols:
+            ac_name: 维护成本车均
+        - index: IPQ-208
+          cols:
+            ac_name: 维护成本收入占比
+        - index: CPQ-208
+          cols:
+            ac_name: 维护成本成本占比
+        - index: QAH-20801
+          cols:
+            ac_name: 日常维护费单车成本
+        - index: QAH-20802
+          cols:
+            ac_name: 半年度保养费单车成本
+        - index: QAH-20803
+          cols:
+            ac_name: 年度保养费用单车成本
+        - index: QAH-20804
+          cols:
+            ac_name: 维修费单车成本
+        - index: QS-1
+          cols:
+            ac_name: 利润
+        - index: IPQS-1
+          cols:
+            ac_name: 利润率
+        - index: Q-21102
+          cols:
+            ac_name: 运输服务服务成本
+        - index: Q-21201
+          cols:
+            ac_name: 曹操平台服务费
+        - index: Q-21202
+          cols:
+            ac_name: 聚合平台服务费
+        - index: Q-1040101
+          cols:
+            ac_name: 经营租赁整租
+        - index: C-301
+          cols:
+            ac_name: 经营租赁整租出车辆数
+        - index: Q-1040102
+          cols:
+            ac_name: 经营租赁新租
+        - index: C-302
+          cols:
+            ac_name: 经营租赁新租出车辆数
+        - index: Q-1040103
+          cols:
+            ac_name: 经营租赁退租
+        - index: C-303
+          cols:
+            ac_name: 经营租赁退租出车辆数
+        - index: Q-1040201
+          cols:
+            ac_name: 融资租出整租
+        - index: C-304
+          cols:
+            ac_name: 融资租出整租租出车辆数
+        - index: Q-1040202
+          cols:
+            ac_name: 融资租出新租
+        - index: C-305
+          cols:
+            ac_name: 融资租出新租租出车辆数
+        - index: Q-1040203
+          cols:
+            ac_name: 融资租出退租
+        - index: C-306
+          cols:
+            ac_name: 融资租出退租租出车辆数
+        - index: Q-1010203
+          cols:
+            ac_name: 专业服务
+        - index: C-307
+          cols:
+            ac_name: 经租存量租入车辆数
+        - index: C-308
+          cols:
+            ac_name: 经租新增租入车辆数
+        - index: C-309
+          cols:
+            ac_name: 融租存量租入车辆数
+        - index: C-310
+          cols:
+            ac_name: 融租新增租入车辆数
+        - index: C-311
+          cols:
+            ac_name: 运输服务租入车辆数
+        - index: Q-2040101
+          cols:
+            ac_name: 经租存量
+        - index: Q-2040102
+          cols:
+            ac_name: 经租新增
+        - index: Q-2040201
+          cols:
+            ac_name: 融租存量
+        - index: Q-2040202
+          cols:
+            ac_name: 融租新增
+        - index: Q-10401
+          cols:
+            ac_name: 经营租赁服务
+        - index: Q-10402
+          cols:
+            ac_name: 融资租赁服务
+        - index: Q-10303
+          cols:
+            ac_name: 运输服务收入
+        - index: Q-1030301
+          cols:
+            ac_name: 经租服务收入
+        - index: Q-1030302
+          cols:
+            ac_name: 加盟服务收入
+        - index: Q-10102
+          cols:
+            ac_name: 商业服务
+        - index: Q-1010201
+          cols:
+            ac_name: 广告服务
+        - index: Q-1010202
+          cols:
+            ac_name: 经纪服务
+        - index: Q-1010203
+          cols:
+            ac_name: 专业服务
+        - index: Q-1010204
+          cols:
+            ac_name: 其他服务
+        - index: Q-701
+          cols:
+            ac_name: 营业外收入
+        - index: Q-2040101
+          cols:
+            ac_name: 存量
+        - index: Q-2040102
+          cols:
+            ac_name: 新增
+        - index: Q-20402
+          cols:
+            ac_name: 融租成本
+        - index: Q-211
+          cols:
+            ac_name: 运输服务成本
+        - index: Q-21101
+          cols:
+            ac_name: 车辆租金
+        - index: Q-21102
+          cols:
+            ac_name: 服务成本
+        - index: Q-2110201
+          cols:
+            ac_name: 经租服务成本
+        - index: Q-2110202
+          cols:
+            ac_name: 加盟服务成本
+        - index: Q-212
+          cols:
+            ac_name: 平台服务费
+        - index: Q-21201
+          cols:
+            ac_name: 曹操平台服务费
+        - index: Q-21202
+          cols:
+            ac_name: 聚合平台服务费
+        - index: Q-208
+          cols:
+            ac_name: 维护成本
+        - index: Q-20801
+          cols:
+            ac_name: 日常维护费
+        - index: Q-20802
+          cols:
+            ac_name: 半年度保养费
+        - index: Q-20803
+          cols:
+            ac_name: 年度保养费用
+        - index: Q-20804
+          cols:
+            ac_name: 维修费
+
+  - df_fillna:
+      value: 0
+
+  - sort_by_columns:
+      sort_list: [ ac_code, ac_name, 合计 ]
+
+  - sort_by_index:
+      sort_list: [QS-104013,CS-3016,QSAH-104013,Q-10401,CS-3013,QAH-10401,Q-1040101,C-301,QAH-1040101,Q-1040102,C-302,QAH-1040102,Q-1040103,C-303,QAH-1040103,Q-10402,CS-3046,QAH-10402,Q-1040201,C-304,QAH-1040201,Q-1040202,C-305,QAH-1040202,Q-1040203,C-306,QAH-1040203,Q-10303,Q-1030301,Q-1030302,Q-10102,Q-1010201,Q-1010202,Q-1010203,Q-1010204,Q-701,QS-204010,QAH-1040,CIP-204010,Q-20401,CS-3078,QA-20401,CIP-20401,CCP-20401,Q-2040101,C-307,QAH-2040101,Q-2040102,C-308,QAH-2040102,Q-20402,CS-30910,QAH-20402,IPQ-20402,CPQ-20402,Q-2040201,C-309,QAH-2040201,Q-2040202,C-310,QAH-2040202,Q-211,Q-21101,C-311,QAH-21101,Q-21102,Q-2110201,Q-2110202,IPQ-211,CPQ-211,Q-212,Q-21201,Q-21202,IPQ-212,CPQ-212,Q-208,QAH-208,IPQ-208,CPQ-208,Q-20801,QAH-20801,Q-20802,QAH-20802,Q-20803,QAH-20803,Q-20804,QAH-20804,QS-1,IPQS-1]
+
+  - row_int_format_by_index:
+      index_rows: [
+          C-301, C-302, C-303, C-304, C-305, C-306, C-307, C-308, C-309, C-310, C-311,
+          CS-3013, CS-3046, CS-3016, CS-3078, CS-30910
+      ]
+
+  - row_pct_format_by_index:
+      index_rows: [
+          CIP-204010, CIP-20401, CCP-20401, IPQ-20402, CPQ-20402, IPQ-211, CPQ-211, IPQ-212, CPQ-212, IPQ-208,
+          CPQ-208, IPQS-1
+      ]
+
+  - row_money_format_by_index:
+      index_rows: [
+          QS-104013, QSAH-104013, Q-10401, QAH-10401, Q-1040101, QAH-1040101, Q-1040102, QAH-1040102, Q-1040103,
+          QAH-1040103, Q-10402, QAH-10402, Q-1040201, QAH-1040201, Q-1040202, QAH-1040202, Q-1040203, QAH-1040203,
+          Q-10303, Q-1030301, Q-1030302, Q-10102, Q-1010201, Q-1010202, Q-1010203, Q-1010204, Q-701, QS-204010,
+          QAH-1040, Q-20401, QA-20401, Q-2040101, QAH-2040101, Q-2040102, QAH-2040102, Q-20402, QAH-20402, Q-2040201,
+          QAH-2040201, Q-2040202, QAH-2040202, Q-211, Q-21101, QAH-21101, Q-21102, Q-2110201, Q-2110202, Q-212,
+          Q-21201, Q-21202, Q-208, QAH-208, Q-20801, QAH-20801, Q-20802, QAH-20802, Q-20803, QAH-20803, Q-20804,
+          QAH-20804, QS-1
+      ]
+
+  - row_float_format_by_index:
+      index_rows: []
+
+  - df_rename_columns:
+      - ac_code: 科目编号
+        ac_name: 科目名称
+  - df_fillna:
+      value: --
+datasource:
+  query: {}
+  datasource_type: qcode_biz_dataset

@@ -1,0 +1,400 @@
+dataset_vis:
+  vis_grid:
+    columns: []
+    row_sort:
+      sort_orders: []
+      sort_by: index
+dataset_pipeline:
+  # - select_code_kind_ac
+  - df_select:
+      - '[industry_id] == @v1 & [platform_id] in @v2'
+      - v1: chu_xing
+        v2: [qingju, haluo, mobike, gofun]
+  - set_meta_days_by_column:
+      src_column: book_month
+      dest_column: month_days
+  - push_dataset:
+      key: mini
+  - df_groupby:
+      by: [ac_code]
+  - df_sum:
+      column: [money]
+  - df_reset_index: [ ]
+  - df_rename_columns:
+      - money: 合计
+  - push_dataset:
+      key: sum_mini
+
+  - use_df:
+      key: mini
+  - df_groupby:
+      by: [platform_name, project_name, supplier_name, book_month]
+  - df_median:
+      column: month_days
+  - df_reset_index: [ ]
+  - df_groupby:
+      by: [platform_name, project_name, supplier_name]
+  - df_sum:
+      column: month_days
+  - df_reset_index: []
+  - add_cols:
+      - ac_code: month_days
+  - df_groupby:
+      by: [ac_code]
+  - df_median:
+      column: month_days
+  - df_reset_index: []
+  - df_rename_columns:
+      - month_days: 合计
+  - stash_push_df: []
+  - use_df:
+      key: sum_mini
+  - stash_push_df: []
+  - stash_concat_df:
+      drop_stash: True
+  - push_dataset:
+      key: sum_mini
+
+  - use_df:
+      key: mini
+  - df_groupby:
+      by: [platform_name, project_name, supplier_name, book_month]
+  - df_median:
+      column: month_days
+  - df_reset_index: []
+  - df_rename_columns:
+      - month_days: money
+  - df_groupby:
+      by: [platform_name, project_name, supplier_name]
+  - df_sum:
+      column: money
+  - df_reset_index: []
+  - add_cols:
+      - ac_code: month_days
+  - add_cols:
+      - ac_name: month_days
+  - stash_push_df: []
+  - use_df:
+      key: mini
+  - stash_push_df: []
+  - stash_concat_df:
+      drop_stash: True
+  - pivot_table:
+      values: money
+      index: [ac_code, ac_name]
+      columns: [platform_name, project_name, supplier_name]
+      aggfunc: sum
+  - stash_push_df: []
+  - use_df:
+      key: sum_mini
+  - stash_push_df: []
+  - stash_join_df:
+      on: [ ac_code ]
+      how: right
+      drop_stash: true
+
+  - row_pad_value_by_index:
+      index_col: ac_code
+      pad_values:
+        Q-1010101: 0
+        Q-1010102: 0
+        Q-1010103: 0
+        Q-1010104: 0
+        Q-1010202: 0
+        Q-1010203: 0
+        Q-1010204: 0
+        Q-10201: 0
+        Q-10202: 0
+        Q-10203: 0
+        Q-10301: 0
+        Q-10302: 0
+        Q-102: 0
+        Q-20101: 0
+        Q-20201: 0
+        Q-20202: 0
+        Q-20203: 0
+        Q-20204: 0
+        Q-20501: 0
+        Q-20502: 0
+        Q-20601: 0
+        Q-20602: 0
+        Q-20603: 0
+        Q-20604: 0
+        Q-20605: 0
+        Q-20701: 0
+        Q-20702: 0
+        Q-202: 0
+        Q-203: 0
+        Q-205: 0
+        Q-206: 0
+        Q-207: 0
+        Q-701: 0
+        C-101: 0
+        C-103: 0
+        C-104: 0
+        C-201: 0
+        C-202: 0
+        C-203: 0
+        C-204: 0
+        C-401: 0
+        C-402: 0
+        C-404: 0
+        C-405: 0
+        C-406: 0
+        C-407: 0
+        C-408: 0
+        C-409: 0
+        C-410: 0
+        C-411: 0
+        C-412: 0
+        C-413: 0
+        C-414: 0
+        C-415: 0
+        C-416: 0
+        C-501: 0
+        C-502: 0
+        C-503: 0
+        C-504: 0
+        C-505: 0
+        C-506: 0
+        C-507: 0
+        C-508: 0
+        C-601: 0
+        C-602: 0
+        C-603: 0
+        C-205: 0
+
+  - df_fillna:
+      value: 0.0
+
+  - row_eval_by_index:
+      exp_str: |
+                {{QS-103012}} = {{Q-10301}} + {{Q-10302}}
+                {{QSAO-103012}} = {{QS-103012}} / ({{C-201}} + {{C-202}})
+                {{QAO-10301}} = {{Q-10301}} / {{C-201}}
+                {{QAO-10302}} = {{Q-10302}} / {{C-202}}
+                {{Q-202}} = {{Q-20201}} + {{Q-20202}} + {{Q-20203}} + {{Q-20204}}
+                {{Q-206}} = {{Q-20602}} + {{Q-20603}} + {{Q-20605}}
+                {{Q-207}} = {{Q-20701}} + {{Q-20702}}
+                {{QAH-202}} = {{Q-202}} / {{C-203}}
+                {{IPQ-202}} = {{Q-202}} / {{QS-103012}}
+                {{QAO-20101}} = {{Q-20101}} / ({{C-201}} + {{C-202}})
+                {{QAH-20101}} = {{Q-20101}} / {{C-203}}
+                {{IPQ-20101}} = {{Q-20101}} / {{QS-103012}}
+                {{QAH-20201}} = {{Q-20201}} / {{C-203}}
+                {{QAH-20202}} = {{Q-20202}} / {{C-203}}
+                {{QAH-20203}} = {{Q-20203}} / {{C-203}}
+                {{QAH-20204}} = {{Q-20204}} / {{C-203}}
+                {{CS-2045}} = {{C-204}} + {{C-205}}
+                {{QAH-207}} = {{Q-207}} / {{CS-2045}}
+                {{IPQ-207}} = {{Q-207}} / {{QS-103012}}
+                {{QAH-20701}} = {{Q-20701}} / {{C-204}}
+                {{QAH-20702}} = {{Q-20702}} / {{C-205}}
+                {{QS-2017}} = {{Q-20101}} + {{Q-202}} + {{Q-206}} + {{Q-207}}
+                {{IPQS-2017}} = {{QS-2017}} / {{QS-103012}}
+                {{CPQ-202}} = {{Q-202}} / {{QS-2017}}
+                {{CPQ-20101}} = {{Q-20101}} / {{QS-2017}}
+                {{CPQ-206}} = {{Q-206}} / {{QS-2017}}
+                {{IPQ-206}} = {{Q-206}} / {{QS-103012}}
+                {{CPQ-207}} = {{Q-207}} / {{QS-2017}}
+                {{QS-1}} = {{QS-103012}} + {{Q-701}} - {{QS-2017}}
+                {{IPQS-1}} = {{QS-1}} / {{QS-103012}}
+      index_col: ac_code
+      exclude_cols: [ ac_name ]
+      target_rows:
+        - index: QS-103012
+          cols:
+            ac_name: 主营业务收入
+        - index: QSAO-103012
+          cols:
+            ac_name: 主营业务单均收入
+        - index: QAO-10301
+          cols:
+            ac_name: 装卸搬运单均收入
+        - index: QAO-10302
+          cols:
+            ac_name: 调度维修单均收入
+        - index: Q-202
+          cols:
+            ac_name: 保险成本
+        - index: Q-207
+          cols:
+            ac_name: 招聘成本
+        - index: QAH-202
+          cols:
+            ac_name: 保险人均成本
+        - index: IPQ-202
+          cols:
+            ac_name: 保险成本收入占比
+        - index: QS-103012
+          cols:
+            ac_name: 主营业务收入
+        - index: QAO-20101
+          cols:
+            ac_name: 一线服务费单均成本
+        - index: QAH-20101
+          cols:
+            ac_name: 一线服务费人均成本
+        - index: IPQ-20101
+          cols:
+            ac_name: 一线服务费收入占比
+        - index: QAH-20201
+          cols:
+            ac_name: 一线服务费人均成本
+        - index: QAH-20202
+          cols:
+            ac_name: 工伤险人均成本
+        - index: QAH-20203
+          cols:
+            ac_name: 社保人均成本
+        - index: QAH-20204
+          cols:
+            ac_name: 商业保险外赔偿人均成本
+        - index: CS-2045
+          cols:
+            ac_name: 招聘人数
+        - index: QAH-207
+          cols:
+            ac_name: 招聘人均成本
+        - index: IPQ-207
+          cols:
+            ac_name: 招聘成本收入占比
+        - index: QAH-20701
+          cols:
+            ac_name: 内部招聘人均成本
+        - index: QAH-20702
+          cols:
+            ac_name: 外部招聘人均成本
+        - index: QS-2017
+          cols:
+            ac_name: 主营业务成本
+        - index: IPQS-2017
+          cols:
+            ac_name: 主营业务成本占主营收入比
+        - index: CPQ-202
+          cols:
+            ac_name: 保险成本成本占比
+        - index: CPQ-20101
+          cols:
+            ac_name: 一线服务费成本占比
+        - index: CPQ-206
+          cols:
+            ac_name: 装备成本成本占比
+        - index: IPQ-206
+          cols:
+            ac_name: 装备成本收入占比
+        - index: CPQ-207
+          cols:
+            ac_name: 招聘成本成本占比
+        - index: QS-1
+          cols:
+            ac_name: code利润
+        - index: IPQS-1
+          cols:
+            ac_name: code利润率
+        - index: Q-206
+          cols:
+            ac_name: 装备成本
+        - index: Q-20605
+          cols:
+            ac_name: 一线劳动者物资装备
+        - index: Q-10301
+          cols:
+            ac_name: 装卸搬运收入
+        - index: Q-10302
+          cols:
+            ac_name: 调度维修收入
+        - index: Q-701
+          cols:
+            ac_name: 营业外收入
+        - index: Q-20101
+          cols:
+            ac_name: 一线服务费
+        - index: Q-202
+          cols:
+            ac_name: 保险成本
+        - index: Q-20201
+          cols:
+            ac_name: 意外险
+        - index: Q-20202
+          cols:
+            ac_name: 工伤险
+        - index: Q-20203
+          cols:
+            ac_name: 社保公积金
+        - index: Q-20204
+          cols:
+            ac_name: 商业保险外赔偿成本
+        - index: Q-206
+          cols:
+            ac_name: 装备成本
+        - index: Q-20602
+          cols:
+            ac_name: 三轮电动车及电池
+        - index: Q-20603
+          cols:
+            ac_name: 四轮车及电池
+        - index: Q-20605
+          cols:
+            ac_name: 一线劳动者物资装备
+        - index: Q-207
+          cols:
+            ac_name: 招聘成本
+        - index: Q-20701
+          cols:
+            ac_name: 内部招聘
+        - index: Q-20702
+          cols:
+            ac_name: 外部招聘
+        - index: C-203
+          cols:
+            ac_name: 一线人数
+        - index: C-201
+          cols:
+            ac_name: 装卸搬运车辆
+        - index: C-202
+          cols:
+            ac_name: 调度维修车辆
+        - index: Q-20101
+          cols:
+            ac_name: 一线服务费
+        - index: C-204
+          cols:
+            ac_name: 内部招聘人数
+        - index: C-205
+          cols:
+            ac_name: 外部招聘人数
+
+  - df_fillna:
+      value: 0
+
+  - sort_by_columns:
+      sort_list: [ ac_code, ac_name, 合计 ]
+
+  - sort_by_index:
+      sort_list: [QS-103012,QSAO-103012,Q-10301,C-201,QAO-10301,Q-10302,C-202,QAO-10302,Q-701,QS-2017,IPQS-2017,Q-20101,C-203,QAO-20101,QAH-20101,IPQ-20101,CPQ-20101,Q-202,QAH-202,IPQ-202,CPQ-202,Q-20201,QAH-20201,Q-20202,QAH-20202,Q-20203,QAH-20203,Q-20204,QAH-20204,Q-206,IPQ-206,CPQ-206,Q-20602,Q-20603,Q-20605,Q-207,CS-2045,QAH-207,IPQ-207,CPQ-207,Q-20701,C-204,QAH-20701,Q-20702,C-205,QAH-20702,QS-1,IPQS-1]
+
+  - row_int_format_by_index:
+      index_rows: [C-201, C-202, C-203, CS-2045, C-204, C-205]
+
+  - row_pct_format_by_index:
+      index_rows: [IPQS-2017, IPQ-20101, CPQ-20101, IPQ-202, CPQ-202, IPQ-206, CPQ-206, IPQ-207, CPQ-207, IPQS-1]
+
+  - row_money_format_by_index:
+      index_rows: [
+          QS-103012, QSAO-103012, Q-10301, QAO-10301, Q-10302, QAO-10302, Q-701, QS-2017, Q-20101, QAO-20101,
+          QAH-20101, Q-202, QAH-202, Q-20201, QAH-20201, Q-20202, QAH-20202, Q-20203, QAH-20203, Q-20204, QAH-20204,
+          Q-206, Q-20602, Q-20603, Q-20605, Q-207, QAH-207, Q-20701, QAH-20701, Q-20702, QAH-20702, QS-1
+      ]
+
+  - row_float_format_by_index:
+      index_rows: []
+
+  - df_rename_columns:
+      - ac_code: 科目编号
+        ac_name: 科目名称
+  - df_fillna:
+      value: --
+datasource:
+  query: {}
+  datasource_type: qcode_biz_dataset

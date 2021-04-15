@@ -1,0 +1,513 @@
+dataset_vis:
+  vis_grid:
+    columns: []
+    row_sort:
+      sort_orders: []
+      sort_by: index
+dataset_pipeline:
+# - select_code_kind_ac
+  - df_select:
+      - '[industry_id] == @v1 & [platform_id] in @v2'
+      - v1: bao_jie
+        v2: [chengtu]
+  - set_meta_days_by_column:
+      src_column: book_month
+      dest_column: month_days
+  - push_dataset:
+      key: mini
+  - df_groupby:
+      by: [ac_code]
+  - df_sum:
+      column: [money]
+  - df_reset_index: [ ]
+  - df_rename_columns:
+      - money: 合计
+  - push_dataset:
+      key: sum_mini
+
+  - use_df:
+      key: mini
+  - df_groupby:
+      by: [tc_name, book_month]
+  - df_median:
+      column: month_days
+  - df_reset_index: [ ]
+  - df_groupby:
+      by: [tc_name]
+  - df_sum:
+      column: month_days
+  - df_reset_index: []
+  - add_cols:
+      - ac_code: month_days
+  - df_groupby:
+      by: [ac_code]
+  - df_median:
+      column: month_days
+  - df_reset_index: []
+  - df_rename_columns:
+      - month_days: 合计
+  - stash_push_df: []
+  - use_df:
+      key: sum_mini
+  - stash_push_df: []
+  - stash_concat_df:
+      drop_stash: True
+  - push_dataset:
+      key: sum_mini
+
+  - use_df:
+      key: mini
+  - df_groupby:
+      by: [tc_name, book_month]
+  - df_median:
+      column: month_days
+  - df_reset_index: []
+  - df_rename_columns:
+      - month_days: money
+  - df_groupby:
+      by: [tc_name]
+  - df_sum:
+      column: money
+  - df_reset_index: []
+  - add_cols:
+      - ac_code: month_days
+  - add_cols:
+      - ac_name: month_days
+  - stash_push_df: []
+  - use_df:
+      key: mini
+  - stash_push_df: []
+  - stash_concat_df:
+      drop_stash: True
+  - pivot_table:
+      values: money
+      index: [ac_code, ac_name]
+      columns: [tc_name]
+      aggfunc: sum
+  - stash_push_df: []
+  - use_df:
+      key: sum_mini
+  - stash_push_df: []
+  - stash_join_df:
+      on: [ ac_code ]
+      how: right
+      drop_stash: true
+
+  - row_pad_value_by_index:
+      index_col: ac_code
+      pad_values:
+        Q-1010101: 0
+        Q-1010102: 0
+        Q-1010103: 0
+        Q-1010104: 0
+        C-401: 0
+        C-402: 0
+        C-415: 0
+        C-416: 0
+        C-404: 0
+        C-405: 0
+        C-406: 0
+        C-407: 0
+        Q-1010202: 0
+        Q-1010203: 0
+        Q-1010204: 0
+        Q-10201: 0
+        Q-10202: 0
+        Q-10203: 0
+        C-408: 0
+        C-409: 0
+        C-410: 0
+        Q-102: 0
+        Q-20201: 0
+        Q-20202: 0
+        Q-20203: 0
+        Q-20204: 0
+        Q-20501: 0
+        Q-20502: 0
+        Q-20101: 0
+        Q-202: 0
+        Q-203: 0
+        Q-205: 0
+        Q-206: 0
+        Q-207: 0
+        C-411: 0
+        C-412: 0
+        C-413: 0
+        C-414: 0
+        Q-701: 0
+        Q-20301: 0
+        Q-20302: 0
+        Q-20303: 0
+        Q-20605: 0
+        Q-20701: 0
+        Q-20702: 0
+
+  - df_fillna:
+      value: 0.0
+
+  - row_eval_by_index:
+      exp_str: |
+                {{Q-102}} = {{Q-10201}} + {{Q-10202}} + {{Q-10203}}
+                {{QS-10101014}} = {{Q-1010101}} + {{Q-1010202}} + {{Q-1010203}} + {{Q-1010204}} + {{Q-1010102}} + {{Q-102}}
+                {{CAD-401}} = {{C-401}} / {{month_days}}
+                {{QAO-1010101}} = {{Q-1010101}} / {{C-401}}
+                {{CAO-402}} = {{C-402}} / {{C-401}}
+                {{QAD-1010101}}  = {{Q-1010101}} / {{C-402}}
+                {{IPQ-1010101}} = {{Q-1010101}} / {{QS-10101014}}
+                {{CAD-415}} = {{C-415}} / {{month_days}}
+                {{QAO-1010102}} = {{Q-1010102}} / {{C-415}}
+                {{CAO-416}} = {{C-416}} / {{C-415}}
+                {{QAD-1010102}} = {{Q-1010102}} / {{C-416}}
+                {{IPQ-1010102}} = {{Q-1010102}} / {{QS-10101014}}
+                {{CAD-405}} = {{C-405}} / {{month_days}}
+                {{CAH-405}} = {{C-405}} / {{C-404}}
+                {{CAH-406}} = {{C-406}} / {{C-405}}
+                {{IPQ-1010202406}} = {{Q-1010202}} / {{C-406}}
+                {{IPQ-1010202}} = {{Q-1010202}} / {{QS-10101014}}
+                {{QAO-1010203}} = {{Q-1010203}} / {{C-407}}
+                {{IPQ-1010203}} = {{Q-1010203}} / {{QS-10101014}}
+                {{IPQ-1010204}} = {{Q-1010204}} / {{QS-10101014}}
+                {{CS-40810}} = {{C-408}} + {{C-409}} + {{C-410}}
+                {{QAO-102}} = {{Q-102}} / {{CS-40810}}
+                {{IPQ-102}} = {{Q-102}} / {{QS-10101014}}
+                {{QAO-10201}} = {{Q-10201}} / {{C-408}}
+                {{QAO-10202}} = {{Q-10202}} / {{C-409}}
+                {{QAO-10203}} = {{Q-10203}} / {{C-410}}
+                {{Q-202}} = {{Q-20201}} + {{Q-20202}} + {{Q-20203}} + {{Q-20204}}
+                {{Q-203}} = {{Q-20301}} + {{Q-20302}} + {{Q-20303}}
+                {{Q-205}} = {{Q-20501}} + {{Q-20502}}
+                {{Q-206}} = {{Q-20605}}
+                {{Q-207}} = {{Q-20701}} + {{Q-20702}}
+                {{QS-2017}} = {{Q-20101}} + {{Q-202}} + {{Q-203}} + {{Q-205}} + {{Q-206}} + {{Q-207}}
+                {{IPQS-2017}} = {{QS-2017}} / {{QS-10101014}}
+                {{QAO-20101}} = {{Q-20101}} / {{C-401}}
+                {{QAH-20101}} = {{Q-20101}} / {{C-411}}
+                {{QAD-20101}} = {{Q-20101}} / {{C-412}}
+                {{QAO-202}} = {{Q-202}} / {{C-401}}
+                {{QAH-202}} = {{Q-202}} / {{C-411}}
+                {{QAO-203}} = {{Q-203}} / ({{C-408}} + {{C-409}} + {{C-410}})
+                {{CS-4134}} = {{C-413}} + {{C-414}}
+                {{QAH-207}} = {{Q-207}} / {{CS-4134}}
+                {{QAH-20701}} = {{Q-20701}} / {{C-413}}
+                {{QAH-20702}} = {{Q-20702}} / {{C-414}}
+                {{QS-1}} = {{QS-10101014}} + {{Q-701}} - {{QS-2017}}
+                {{IPQS-1}} = {{QS-1}} / {{QS-10101014}}
+
+      index_col: ac_code
+      exclude_cols: [ac_name]
+      target_rows:
+        - index: QS-10101014
+          cols:
+            ac_name: 主营业务收入
+        - index: CAD-401
+          cols:
+            ac_name: 主营业务日均单量
+        - index: QAO-1010101
+          cols:
+            ac_name: 主营收入单均收入（元/单）
+        - index: CAO-402
+          cols:
+            ac_name: 总单量每单工时数
+        - index: QAD-1010101
+          cols:
+            ac_name: 基础收入单位工时收入（元/小时）
+        - index: IPQ-1010101
+          cols:
+            ac_name: 主营收入占比
+        - index: CAD-415
+          cols:
+            ac_name: KPI日均单量
+        - index: QAO-1010102
+          cols:
+            ac_name: KPI单均收入（元/单）
+        - index: CAO-416
+          cols:
+            ac_name: KPI每单工时数
+        - index: QAD-1010102
+          cols:
+            ac_name: KPI单位工时收入（元/小时）
+        - index: IPQ-1010102
+          cols:
+            ac_name: KPI收入占比
+        - index: CAD-405
+          cols:
+            ac_name: 日均单量（间夜）
+        - index: CAH-405
+          cols:
+            ac_name: 房源效率
+        - index: CAH-406
+          cols:
+            ac_name: 客单价
+        - index: IPQ-1010202406
+          cols:
+            ac_name: 分成比例
+        - index: IPQ-1010202
+          cols:
+            ac_name: 经纪服务收入占比
+        - index: QAO-1010203
+          cols:
+            ac_name: 专业服务单均收入
+        - index: IPQ-1010203
+          cols:
+            ac_name: 专业服务收入占比
+        - index: IPQ-1010204
+          cols:
+            ac_name: 其他服务收入占比
+        - index: Q-102
+          cols:
+            ac_name: 批发和零售业
+        - index: CS-40810
+          cols:
+            ac_name: 批发和零售业销售单量
+        - index: QAO-102
+          cols:
+            ac_name: 批发和零售业销售单价
+        - index: IPQ-102
+          cols:
+            ac_name: 批发和零售业收入占比
+        - index: QAO-10201
+          cols:
+            ac_name: 商品销售收入单价
+        - index: QAO-10202
+          cols:
+            ac_name: 代销商品销售收入单价
+        - index: QAO-10203
+          cols:
+            ac_name: 代销商品手续费收入单价
+        - index: QS-2017
+          cols:
+            ac_name: 主营业务成本
+        - index: IPQS-2017
+          cols:
+            ac_name: 主营业务收入占比
+        - index: QAO-20101
+          cols:
+            ac_name: 一线服务费单均成本
+        - index: QAH-20101
+          cols:
+            ac_name: 一线服务费人均成本
+        - index: QAD-20101
+          cols:
+            ac_name: 一线服务费单位工时成本（元/小时）
+        - index: QAO-202
+          cols:
+            ac_name: 保险成本单均成本
+        - index: QAH-202
+          cols:
+            ac_name: 保险成本人均成本
+        - index: QAO-203
+          cols:
+            ac_name: 商品销售单均成本
+        - index: CS-4134
+          cols:
+            ac_name: 招聘人数
+        - index: QAH-207
+          cols:
+            ac_name: 总人均招聘成本
+        - index: QAH-20701
+          cols:
+            ac_name: 内部人均招聘成本
+        - index: QAH-20702
+          cols:
+            ac_name: 外部人均招聘成本
+        - index: QS-1
+          cols:
+            ac_name: code利润
+        - index: IPQS-1
+          cols:
+            ac_name: code利润率
+        - index: Q-202
+          cols:
+            ac_name: 保险成本
+        - index: Q-205
+          cols:
+            ac_name: 房屋成本
+        - index: Q-1010102
+          cols:
+            ac_name: 经纪服务
+        - index: Q-1010204
+          cols:
+            ac_name: 其他服务
+        - index: Q-203
+          cols:
+            ac_name: 商品销售成本
+        - index: Q-206
+          cols:
+            ac_name: 装备成本
+        - index: Q-207
+          cols:
+            ac_name: 招聘成本
+        - index: C-407
+          cols:
+            ac_name: 专业服务完成单量
+        - index: C-408
+          cols:
+            ac_name: 商品销售销售单量
+        - index: C-409
+          cols:
+            ac_name: 代销商品销售单量
+        - index: C-410
+          cols:
+            ac_name: 代销商品手续费销售单量
+        - index: C-413
+          cols:
+            ac_name: 内部招聘人数
+        - index: C-414
+          cols:
+            ac_name: 外部招聘人数
+        - index: C-402
+          cols:
+            ac_name: 基础收入总工时数
+        - index: C-416
+          cols:
+            ac_name: KPI总工时数
+        - index: C-415
+          cols:
+            ac_name: KPI单量
+        - index: C-401
+          cols:
+            ac_name: 基础收入单量
+        - index: Q-1010101
+          cols:
+            ac_name: 基础收入
+        - index: Q-1010102
+          cols:
+            ac_name: KPI收入
+        - index: Q-1010202
+          cols:
+            ac_name: 经纪服务
+        - index: C-403
+          cols:
+            ac_name: 签约房源数
+        - index: C-404
+          cols:
+            ac_name: 出单房源数
+        - index: C-405
+          cols:
+            ac_name: 订单量（间夜）
+        - index: C-406
+          cols:
+            ac_name: GMV
+        - index: Q-1010203
+          cols:
+            ac_name: 专业服务
+        - index: Q-1010204
+          cols:
+            ac_name: 其他服务
+        - index: Q-102
+          cols:
+            ac_name: 批发和零售业
+        - index: Q-10201
+          cols:
+            ac_name: 商品销售
+        - index: Q-10202
+          cols:
+            ac_name: 代销商品收入
+        - index: Q-10203
+          cols:
+            ac_name: 代销商品手续费收入
+        - index: Q-701
+          cols:
+            ac_name: 营业外收入
+        - index: Q-20101
+          cols:
+            ac_name: 一线服务费
+        - index: C-411
+          cols:
+            ac_name: 一线人数
+        - index: C-412
+          cols:
+            ac_name: 总工时数
+        - index: Q-202
+          cols:
+            ac_name: 保险成本
+        - index: Q-20201
+          cols:
+            ac_name: 意外险
+        - index: Q-20202
+          cols:
+            ac_name: 工伤险
+        - index: Q-20203
+          cols:
+            ac_name: 社保公积金
+        - index: Q-10204
+          cols:
+            ac_name: 商业保险外赔偿成本
+        - index: Q-203
+          cols:
+            ac_name: 商品销售成本
+        - index: Q-20301
+          cols:
+            ac_name: 布草
+        - index: Q-20302
+          cols:
+            ac_name: 门锁
+        - index: Q-20303
+          cols:
+            ac_name: 日用品
+        - index: Q-205
+          cols:
+            ac_name: 房屋成本
+        - index: Q-20501
+          cols:
+            ac_name: 房屋租金
+        - index: Q-20502
+          cols:
+            ac_name: 房屋其他费用
+        - index: Q-206
+          cols:
+            ac_name: 装备成本
+        - index: Q-20605
+          cols:
+            ac_name: 一线劳动者物资装备
+        - index: Q-207
+          cols:
+            ac_name: 招聘成本
+        - index: Q-20701
+          cols:
+            ac_name: 内部招聘
+        - index: Q-20702
+          cols:
+            ac_name: 外部招聘
+
+  - df_fillna:
+      value: 0
+
+  - sort_by_columns:
+      sort_list: [ ac_code, ac_name, 合计 ]
+
+  - sort_by_index:
+      sort_list: [QS-10101014,Q-1010101,C-401,CAD-401,QAO-1010101,C-402,CAO-402,QAD-1010101,IPQ-1010101,Q-1010102,C-415,CAD-415,QAO-1010102,C-416,CAO-416,QAD-1010102,IPQ-1010102,Q-1010202,C-403,C-404,C-405,CAD-405,CAH-405,C-406,CAH-406,IPQ-1010202406,IPQ-1010202,Q-1010203,C-407,QAO-1010203,IPQ-1010203,Q-1010204,IPQ-1010204,Q-102,CS-40810,QAO-102,IPQ-102,Q-10201,C-408,QAO-10201,Q-10202,C-409,QAO-10202,Q-10203,C-410,QAO-10203,Q-701,QS-2017,IPQS-2017,Q-20101,QAO-20101,C-411,QAH-20101,C-412,QAD-20101,Q-202,QAO-202,QAH-202,Q-20201,Q-20202,Q-20203,Q-10204,Q-203,QAO-203,Q-20301,Q-20302,Q-20303,Q-205,Q-20501,Q-20502,Q-206,Q-20605,Q-207,CS-4134,QAH-207,Q-20701,C-413,QAH-20701,Q-20702,C-414,QAH-20702,QS-1,IPQS-1]
+
+  - row_int_format_by_index:
+      index_rows: [
+          C-401, C-402, C-415, C-416, C-403, C-404, C-405, C-406, C-407, C-408, C-409, C-410, C-411, C-412, C-413, C-414
+      ]
+
+  - row_pct_format_by_index:
+      index_rows: [
+          IPQ-1010101, IPQ-1010102, IPQ-1010202406, IPQ-1010202, IPQ-1010203, IPQ-1010204, IPQ-102, IPQS-2017, IPQS-1
+      ]
+
+  - row_money_format_by_index:
+      index_rows: [
+          Q-1010101, Q-1010102, Q-1010202, Q-1010203, Q-1010204, Q-102, Q-10201, Q-10202, Q-10203, Q-701, Q-20101,
+          Q-202, Q-20201, Q-20202, Q-20203, Q-10204, Q-203, Q-20301, Q-20302, Q-20303, Q-205, Q-20501, Q-20502, Q-206,
+          Q-20605, Q-207, Q-20701, Q-20702, QS-10101014, QS-2017, QS-1, QAO-1010101, QAD-1010101, QAO-1010102,
+          QAD-1010102, QAO-1010203, QAO-102, QAO-10201, QAO-10202, QAO-10203, QAO-20101, QAH-20101, QAD-20101,
+          QAO-202, QAH-202, QAO-203, QAH-207, QAH-20701, QAH-20702
+      ]
+
+  - row_float_format_by_index:
+      index_rows: [
+          CAD-401, CAO-402, CAD-415, CAO-416, CAD-405, CAH-405, CAH-406
+      ]
+
+  - df_rename_columns:
+      - ac_code: 科目编号
+        ac_name: 科目名称
+  - df_fillna:
+      value: --
+datasource:
+  query: {}
+  datasource_type: qcode_biz_dataset

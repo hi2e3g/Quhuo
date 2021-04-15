@@ -1,0 +1,280 @@
+
+dataset_vis:
+  vis_grid:
+    columns: []
+    row_sort:
+      sort_orders: []
+      sort_by: index
+
+dataset_pipeline:
+  - push_dataset:
+      key: mini
+  - df_select:
+    - '[ac_rule_kind] == @v1'
+    - v1: team
+  - drop_duplicates:
+      - [ tc_id,org_bu_name,org_bu_division_name]
+  - fetch_cols:
+      columns: [tc_id,org_bu_name,org_bu_division_name,org_bu,org_bu_division]
+  - df_rename_columns:
+      - tc_id: code_team_id
+#  - df_select:
+#      - 'org_bu > @p1 & org_bu_division > @p1'
+#      - p1: ''
+  - stash_push_df: []
+  - use_df:
+      key: mini
+      columns: [code_team_id,ac_code,money,ac_rule_kind,ac_name]
+  - df_select:
+      - '[ac_rule_kind] == @v1'
+      - v1: code
+  - stash_push_df: []
+  - stash_join_df:
+      on: [ code_team_id ]
+      how: left
+      drop_stash: true
+  - df_rename_columns:
+      - code_team_id: tc_id
+  - stash_push_df: []
+  - use_df:
+      key: mini
+  - df_select:
+      - '[ac_rule_kind] == @v1'
+      - v1: team
+  - stash_push_df: []
+  - stash_concat_df:
+      drop_stash: True
+  - pivot_table:
+      values: money
+      index: [ac_code, ac_name]
+      columns: []
+      aggfunc: sum
+
+  - row_pad_value_by_index:
+      index_col: ac_code
+      pad_values:
+        Q-1040101: 0
+        Q-1040102: 0
+        Q-1040103: 0
+        Q-1040201: 0
+        Q-1040202: 0
+        Q-1040203: 0
+        Q-1010201: 0
+        Q-1010202: 0
+        Q-1010203: 0
+        Q-1010204: 0
+        Q-1030301: 0
+        Q-1030302: 0
+        Q-1010101: 0
+        Q-1010102: 0
+        Q-10301: 0
+        Q-10302: 0
+        Q-1010103: 0
+        Q-1010104: 0
+        Q-30101: 0
+        Q-301: 0
+        Q-302: 0
+        Q-303: 0
+        Q-401: 0
+        Q-402: 0
+        Q-403: 0
+        Q-404: 0
+        Q-500: 0
+        Q-600: 0
+        Q-700: 0
+        Q-800: 0
+        Q-900: 0
+        Q-701: 0
+        Q-202: 0
+        Q-20201: 0
+        Q-20202: 0
+        Q-20203: 0
+        Q-20204: 0
+        Q-20301: 0
+        Q-20302: 0
+        Q-20303: 0
+        Q-20501: 0
+        Q-20502: 0
+        Q-20601: 0
+        Q-20602: 0
+        Q-20603: 0
+        Q-20604: 0
+        Q-20605: 0
+        Q-20701: 0
+        Q-20702: 0
+        Q-20801: 0
+        Q-20802: 0
+        Q-20803: 0
+        Q-20804: 0
+        Q-2110201: 0
+        Q-2110202: 0
+        Q-21101: 0
+        Q-21201: 0
+        Q-21202: 0
+        Q-2040101: 0
+        Q-2040102: 0
+        Q-2040201: 0
+        Q-2040202: 0
+        Q-20101: 0
+        Q-20102: 0
+        Q-30102: 0
+        Q-30103: 0
+        Q-30104: 0
+        Q-30105: 0
+        Q-30106: 0
+        Q-30107: 0
+        Q-30201: 0
+        Q-30202: 0
+        Q-30203: 0
+        Q-30204: 0
+        Q-30205: 0
+        Q-30206: 0
+        Q-30207: 0
+        Q-30208: 0
+        Q-30301: 0
+        Q-30302: 0
+        Q-30303: 0
+        Q-3020101: 0
+        Q-3020102: 0
+        Q-30209: 0
+        Q-30210: 0
+
+  - df_fillna:
+      value: 0.0
+
+  - df_rename_columns:
+      - money: 合计
+  - stash_push_df: [ ]
+  - stash_concat_df:
+      drop_stash: True
+  - add_row_with_sum:
+      index_col: ac_code
+      target_value: Q-302
+      sum_rows: ['Q-30201','Q-30202', 'Q-30203', 'Q-30204', 'Q-30205', 'Q-30206', 'Q-30207', 'Q-30208', 'Q-30209', 'Q-30210']
+  - add_row_with_sum:
+      index_col: ac_code
+      target_value: Q-301
+      sum_rows: ['Q-30101','Q-30102', 'Q-30103', 'Q-30104', 'Q-30105', 'Q-30106', 'Q-30107']
+  - add_row_with_sum:
+      index_col: ac_code
+      target_value: Q-303
+      sum_rows: ['Q-30301','Q-30302', 'Q-30303']
+  - row_eval_by_index:
+      exp_str: |
+                {{QS-11}} = {{Q-1010101}} + {{Q-1010102}} + {{Q-1010103}} + {{Q-1010104}}
+                {{QS-21}} = {{Q-10301}} + {{Q-10302}}
+                {{Q-10401}} = {{Q-1040101}} + {{Q-1040102}} + {{Q-1040103}}
+                {{Q-10402}} = {{Q-1040201}} + {{Q-1040202}} + {{Q-1040203}}
+                {{Q-10102}} = {{Q-1010201}} + {{Q-1010202}} + {{Q-1010203}} + {{Q-1010204}}
+                {{Q-10303}} = {{Q-1030301}} + {{Q-1030302}}
+                {{QS-22}} = {{Q-10401}} + {{Q-10402}} + {{Q-10102}} + {{Q-10303}}
+                {{QS-1000}} = {{QS-11}} + {{QS-21}} + {{QS-22}}
+                {{Q-202}} = {{Q-20201}} + {{Q-20202}} + {{Q-20203}} + {{Q-20204}} + {{Q-202}}
+                {{Q-203}} = {{Q-20301}} + {{Q-20302}} + {{Q-20303}}
+                {{Q-205}} = {{Q-20501}} + {{Q-20502}}
+                {{Q-206}} = {{Q-20601}} + {{Q-20602}} + {{Q-20603}} + {{Q-20604}} + {{Q-20605}}
+                {{Q-207}} = {{Q-20701}} + {{Q-20702}}
+                {{Q-208}} = {{Q-20801}} + {{Q-20802}} + {{Q-20803}} + {{Q-20804}}
+                {{Q-21102}} = {{Q-2110201}} + {{Q-2110202}}
+                {{Q-211}} = {{Q-21101}} + {{Q-21102}}
+                {{Q-212}} = {{Q-21201}} + {{Q-21202}}
+                {{Q-20401}} = {{Q-2040101}} + {{Q-2040102}}
+                {{Q-20402}} = {{Q-2040201}} + {{Q-2040202}}
+                {{QS-2017}} = {{Q-20101}} + {{Q-20401}} + {{Q-20402}} + {{Q-202}} + {{Q-203}} + {{Q-205}} + {{Q-206}} + {{Q-207}} + {{Q-208}} + {{Q-211}} + {{Q-212}}
+                {{QS-700}} = {{Q-700}} + {{Q-701}}
+                {{Q-30101}} = {{Q-30101}}
+                {{Q-30201}} = {{Q-3020101}} + {{Q-3020102}}
+                {{Q-301}} = {{Q-30101}} + {{Q-30102}} + {{Q-30103}} + {{Q-30104}} + {{Q-30105}} + {{Q-30106}} + {{Q-30107}}
+                {{Q-302}} = {{Q-30201}} + {{Q-30202}} + {{Q-30203}} + {{Q-30204}} + {{Q-30205}} + {{Q-30206}} + {{Q-30207}} + {{Q-30208}} + {{Q-30209}} + {{Q-30210}}
+                {{Q-303}} = {{Q-30301}} + {{Q-30302}} + {{Q-30303}}
+                {{QS-3013}} = {{Q-301}} + {{Q-302}} + {{Q-303}} - {{Q-30101}}
+                {{IPQ-30101}} = {{Q-30101}} / {{QS-1000}}
+                {{IPQS-3013}} = {{QS-3013}} / {{QS-1000}}
+                {{QS-4014}} = {{Q-401}} + {{Q-402}} + {{Q-403}} + {{Q-404}}
+                {{IPQS-4014}} = {{QS-4014}} / {{QS-1000}}
+                {{QS-11}} = {{QS-1000}} - {{QS-2017}} - {{Q-30101}} - {{QS-3013}} - {{QS-4014}} - {{Q-500}} + {{Q-600}}
+                {{QS-111}} = {{QS-11}} + {{QS-700}} - {{Q-800}}
+                {{IPQS-111}} = {{QS-111}} / {{QS-1000}}
+                {{QS-1111}} = {{QS-111}} - {{Q-900}}
+                {{IPQS-1111}} = {{QS-1111}} / {{QS-1000}}
+                {{QS-0}} = {{QS-111}} - {{Q-900}}
+                {{IPQS-0}} = {{QS-0}} / {{QS-1000}}
+
+      index_col: ac_code
+      exclude_cols: [ac_name]
+      target_rows:
+        - index: Q-500
+          cols:
+            ac_name: 资产减值损失
+        - index: Q-600
+          cols:
+            ac_name: 投资收益
+        - index: Q-900
+          cols:
+            ac_name: 所得税
+        - index: QS-3013
+          cols:
+            ac_name: 管理费用
+        - index: IPQ-30101
+          cols:
+            ac_name: 运营支持费用率
+        - index: IPQS-3013
+          cols:
+            ac_name: 管理费用率
+        - index: QS-4014
+          cols:
+            ac_name: 财务费用
+        - index: IPQS-4014
+          cols:
+            ac_name: 财务费用率
+        - index: QS-11
+          cols:
+            ac_name: 营业利润
+        - index: QS-111
+          cols:
+            ac_name: 利润总额
+        - index: IPQS-111
+          cols:
+            ac_name: 利润率
+        - index: QS-700
+          cols:
+            ac_name: 营业外收入
+        - index: QS-0
+          cols:
+            ac_name: 净利润
+        - index: IPQS-0
+          cols:
+            ac_name: 净利润率
+        - index: Q-30101
+          cols:
+            ac_name: 运营支持费用
+        - index: Q-800
+          cols:
+            ac_name: 营业外支出
+
+  - df_fillna:
+      value: 0
+
+  - sort_by_columns:
+      sort_list: [ ac_code, ac_name, 合计 ]
+
+  - sort_by_index:
+      sort_list: [Q-30101,IPQ-30101,QS-3013,IPQS-3013,QS-4014,IPQS-4014,Q-500,Q-600,QS-11,QS-700,Q-800,QS-111,IPQS-111,Q-900, QS-0,IPQS-0]
+
+  - row_pct_format_by_index:
+      index_rows: [IPQ-30101, IPQS-3013, IPQS-4014, IPQS-111, IPQS-0]
+
+  - row_money_format_by_index:
+      index_rows: [
+          Q-30101, QS-3013, QS-4014, Q-500, Q-600, QS-11, QS-700, Q-800, QS-111, Q-900, QS-0
+      ]
+
+  - df_rename_columns:
+      - ac_code: 科目编号
+        ac_name: 科目名称
+  - df_fillna:
+      value: --
+datasource:
+  query: {}
+  datasource_type: qcode_biz_dataset
+
