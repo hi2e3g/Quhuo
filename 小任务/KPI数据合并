@@ -1,0 +1,24 @@
+import os
+import pandas as pd
+path= r"D:\运单----KPI数据\30AKPI管理-多站点指标明细-重构KPI方案"
+def clear_data(df):
+    df = df.applymap(lambda x: str(x).strip('"'))
+    df = df.applymap(lambda x: str(x).strip('='))
+    df = df.applymap(lambda x: str(x).strip('""'))
+    df = df.applymap(lambda x: str(x).strip('——'))
+    df = df.applymap(lambda x: str(x).strip("'"))
+    return df
+df_group=[]
+Str="xlsx"
+for root,dirs,files in os.walk(path):
+    for file in files:
+        if "KPI" in file:
+            path1=os.path.join(root,file)
+            res=path1.split(".")
+            if res[-1]== Str:
+                df=pd.read_excel(path1)
+                print(path1)
+                df=df[["团队id","团队名","KPI收入"]]
+                df_group.append(df)
+result= pd.concat(df_group)
+result.to_excel(r"C:\Users\quhuo\Desktop\KPI_sum.xlsx",index=False)
