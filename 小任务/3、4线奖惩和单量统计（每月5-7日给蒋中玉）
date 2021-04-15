@@ -1,0 +1,53 @@
+#_*_ coding: utf-8 _*_
+
+import pandas as pd
+
+def main():
+    # 易即达处理(从中台直接下载的文件需wps重新保存为csv格式）
+    path = "."
+
+    src_path_order = path +"\\"+ "mt_worker_order_common_kpi_by_monthly_t2.xlsx"
+    src_path_qplus = path +"\\"+ "std_qplus_dc.xlsx"
+    src_path_punish = path +"\\"+ "mt_month_16_std.xlsx"
+
+    dest_path_order = path +"\\"+ "易即达完成单量.xlsx"
+    dest_path_punish = path +"\\"+ "易即达奖惩数据.xlsx"
+
+    # 导入有单数据
+    order_data = pd.read_excel(src_path_order,error_bad_lines=False)
+
+    # 导入商圈数据
+    dc_data = pd.read_excel(src_path_qplus, usecols=['supplier_name', 'dc_id', 'dc_name', 'vendor_dc_id'])
+    dc_data.rename(columns={'vendor_dc_id': '站点ID'}, inplace=True)
+
+    # 导入奖惩数据
+    # 注意 mt_day_13    更新时间：日更新 日累计
+    #    mt_month_16  更新时间：月下载 次月更新
+    #    (优先使用month数据，没有则使用day数据)
+    punish_data = pd.read_excel(src_path_punish)
+    print(punish_data.shape)
+
+    # 有单数据交商圈数据
+    order_merge_dc = pd.merge(order_data, dc_data, left_on='dc_id', right_on='dc_id', how='left')
+    order_merge_dc.fillna('Nan', inplace=True)
+
+    # 奖惩数据交商圈数据
+    punish_data['站点ID'] = punish_data['站点ID'].astype('str')
+    punish_merge_dc = pd.merge(punish_data, dc_data, left_on='站点ID', right_on='站点ID', how='left')
+    punish_merge_dc.fillna('Nan', inplace=True)
+    print(punish_merge_dc.shape)
+    # print(punish_merge_dc.columns.tolist())
+    # print(punish_merge_dc['dc_name'])
+
+    # 筛选易继达数据
+    order_info = order_merge_dc[order_merge_dc['dc_name'].str.contains('易即达')]
+
+    punish_info = punish_merge_dc[punish_merge_dc['dc_name'].str.contains('易即达')]
+    print(punish_info.shape)
+
+    # 导出成excel
+    order_info.to_excel(dest_path_order, encoding='utf_8_sig', index=False)
+    punish_info.to_excel(dest_path_punish, encoding='utf_8_sig', index=False)
+
+if __name__ == "__main__":
+    main()
