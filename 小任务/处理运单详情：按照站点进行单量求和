@@ -1,0 +1,33 @@
+import os
+import pandas as pd
+path= r"D:\运单----KPI数据\5数据分析-运单详情"
+def clear_data(df):
+    df = df.applymap(lambda x: str(x).strip('"'))
+    df = df.applymap(lambda x: str(x).strip('='))
+    df = df.applymap(lambda x: str(x).strip('""'))
+    df = df.applymap(lambda x: str(x).strip('——'))
+    df = df.applymap(lambda x: str(x).strip("'"))
+    return df
+df_group=[]
+Str="csv"
+for root,dirs,files in os.walk(path):
+    for file in files:
+        if "运单" in file:
+            path1=os.path.join(root,file)
+            res=path1.split(".")
+            if res[-1]== Str:
+                df=pd.read_csv(path1)
+                print(path1)
+                df=df[df["配送状态"]=="已完成"]
+                df=df[["团队ID","团队名称","运单号"]]
+                df=df.dropna(subset=["团队ID","团队名称"])
+                df=df.drop_duplicates(subset=["运单号"])
+                df_group.append(df)
+
+
+result= pd.concat(df_group)
+
+
+
+df1=result.groupby(["团队ID","团队名称"])["运单号"].count()
+df1.to_excel(r"C:\Users\quhuo\Desktop\sum.xlsx")
