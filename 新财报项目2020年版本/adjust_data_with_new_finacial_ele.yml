@@ -1,0 +1,190 @@
+
+ele_month_env:
+  context_defaults:
+    platform_code: elem
+    play_on_dask_cluster: true
+    delay_compute: true
+    dask_client_set_as_default: true
+    sync_result_from_cluster: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+  pre_load_dataset:
+    # 新财报数据
+    - cost_revenue_dc_agg_dc
+    - std_qplus_dc
+    - ele_teams_basic_lable_by_daily_t2
+    - salaryflow-std
+    - ele_dc_start_level_by_daily_t2
+
+  play:
+    - name: ele_cost_revenue_dc_agg_dc_by_monthly
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_dc
+            columns: [vendor_dc_id,dc_id, platform_code]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: cost_revenue_dc_agg_dc
+            columns: [dc_id,'51001','41011','41012','41013','41014','41016','41015','41017','41018', '41019','41102','41103']
+            rename: 
+              '51001': 结算单量
+              '41011': 网格基础价
+              '41012': 其他基础收入
+              '41013': 上KPI收入
+              '41014': 下KPI收入
+              '41016': 政策性收入_其他
+              '41015': 骑手活动收入
+              '41017': 政策收入_强分摊
+              '41018': 运营扣款
+              '41019': 运营扣款_强分摊
+              '41102': 站点变卖损益
+              '41103': 物资变卖收入
+        - df_eval:
+            - |
+              [网格基础价] =  [网格基础价] / 100
+              [其他基础收入] =  [其他基础收入] / 100
+              [上KPI收入] =  [上KPI收入] / 100
+              [下KPI收入] =  [下KPI收入] / 100
+              [骑手活动收入] =  [骑手活动收入] / 100
+              [政策性收入_其他] =  [政策性收入_其他] / 100
+              [运营扣款] =  [运营扣款] / 100
+              [政策收入_强分摊] =  [政策收入_强分摊] / 100
+              [运营扣款_强分摊] =  [运营扣款_强分摊] / 100
+              [站点变卖损益] =  [站点变卖损益] / 100
+              [物资变卖收入] =  [物资变卖收入] / 100
+        - df_round:
+            columns: [网格基础价, 其他基础收入, 上KPI收入, 下KPI收入, 政策性收入_其他, 骑手活动收入, 政策收入_强分摊, 运营扣款_强分摊, 站点变卖损益, 物资变卖收入]
+            precision: 2
+        - stash_push_df: []
+        - stash_join_df:
+              on: dc_id
+              how: left
+              drop_stash: true
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: elem
+        - set_meta_month_column:
+            - month
+
+    - name: ele_teams_basic_lable_by_daily_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_cost_revenue_dc_agg_dc_by_monthly
+        - add_cols:
+            - 运营强分摊_手工: 0.00 
+        - stash_push_df: []
+        - use_df:
+            key: ele_teams_basic_lable_by_daily_t2
+            columns: [dc_id, 订单天数, 当月总天数, 城市基础价, 商圈加价, 其他补贴金额, 申诉应收金额, 违规扣款, 骑手费用扣款, 运单补贴, 非运单补贴]
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - df_fillna:
+            columns: [订单天数, 当月总天数, 城市基础价, 商圈加价, 其他补贴金额, 申诉应收金额, 违规扣款, 骑手费用扣款, 运单补贴, 非运单补贴]
+            value: 0.0
+        - df_eval:
+            - |
+              [基础配送费] = [网格基础价] - [城市基础价] - [商圈加价]
+              [其他基础收入_手工] = [其他基础收入] - [其他补贴金额] - [申诉应收金额]
+              [其他扣款_手工] = [运营扣款] - [违规扣款] - [骑手费用扣款]
+              [动态日均单量] =  [结算单量] / [订单天数]
+              [当月预估总结算单量] =  [结算单量]
+        - df_reset_index:
+            drop: true
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'订单天数']==0, u'动态日均单量'] =  0
+                result = df
+        - set_meta_month_column:
+            - month
+
+    - name: ele_cost_knight_by_daily_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_dc
+            columns: [vendor_dc_id, dc_id,platform_code]
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: elem
+        - stash_push_df: []
+        # 成本数据
+        - use_df:
+            key: salaryflow-std
+            columns:
+              [BOSS商圈ID, 人员ID, money,platform_code,cate]
+            rename:
+              money: '6100101'
+              BOSS商圈ID: dc_id
+        - df_select:
+            - '(platform_code == @p1) & ([cate] == @p2)'
+            - p1: elem
+              p2: '1'
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: '6100101'
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - df_fillna:
+            columns: ['6100101']
+            value: 0
+        - stash_push_df: []
+
+        # 将6100102的成本加入到骑手商圈骑手成本中
+        - use_df:
+            key: cost_revenue_dc_agg_dc
+            columns:
+              ['6100102', dc_id]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - df_fillna:
+            columns: '6100102'
+            value: 0.0
+
+        - df_eval:
+            - |
+              [6100102] = [6100102]/100
+              [商圈骑手成本] = [6100101] + [6100102]
+        - set_meta_month_column:
+            - month
+
+    - name: ele_dc_start_level_by_daily_t2
+      sync_result: true
+      cooks:
+        # 形成表格样式[dc_id,服务质量分,质量星级]
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id, star_level]
+            rename:
+                star_level: 质量星级
+        - run_py:
+          - | 
+              df[u'质量星级'] = df[u'质量星级'].apply(lambda x: str(int(x)) + u'星' if int(x)!= 0 else np.nan)
+              result = df
+        - stash_push_df: []
+        - use_df:
+            key: ele_dc_start_level_by_daily_t2
+            columns: [dc_id,服务质量分]
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - set_meta_month_column:
+            - month
+      

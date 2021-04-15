@@ -1,0 +1,1032 @@
+financial_compass_comparison_form_snap_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+  # 新财报数据
+    # 商圈新财报数据
+    - cost_revenue_dc_agg_dc
+    # 业主新财报数据
+    - cost_revenue_owner_agg_owner
+    # 私教新财报
+    - cost_revenue_coach_agg_coach
+    # 大区新财报数据
+    - cost_revenue_theater_agg_theater
+    # 分部新财报数据
+    - cost_revenue_division_agg_division
+    # 事业部新财报数据
+    - cost_revenue_business_agg_business
+
+  # 罗盘数据
+    # 罗盘商圈数据
+    - compass_dc_label_chain
+    # 罗盘业主数据
+    - compass_owner_label_chain
+    # 罗盘私教数据
+    - compass_coach_label_chain
+    # 罗盘大区数据
+    - compass_theater_label_chain
+    # 罗盘分部数据
+    - compass_division_label_chain
+    # 罗盘事业部数据
+    - compass_business_label_base
+
+  # 商圈表和团队关系表
+    # 商圈基础信息表
+    - std_qplus_dc
+    # 团队关系表
+    - std_qplus_team_map
+
+
+  play:
+    # 关联罗盘与财报商圈级别数据，各项值作对比
+    - name: comparison_compass_financial_dc_base
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [dc_id, 结算单量, 商圈成本, 骑手成本, 营业外收入, 主营业务收入, 商圈总成本]
+            rename:
+              结算单量: 结算单量_t2
+              商圈成本: 商圈成本_t2
+              骑手成本: 骑手成本_t2
+              营业外收入: 营业外收入_t2
+              主营业务收入: 主营业务收入_t2
+              商圈总成本: 商圈总成本_t2
+
+        - add_cols:
+            - mark: 1
+        - stash_push_df: []
+
+        - use_df:
+            key: cost_revenue_dc_agg_dc
+            columns: [dc_id,'51001',assets_income,'6100101','6100102',outside_business_income,main_business_income]
+            rename:
+              '51001': 结算单量
+        - df_eval:
+            - |
+                [商圈成本] = ([assets_income] - [6100101] - [6100102])/100
+                [骑手成本] = ([6100101] + [6100102])/100
+                [营业外收入] = [outside_business_income]/100
+                [主营业务收入] = [main_business_income]/100
+                [商圈总成本] = [骑手成本] + [商圈成本]
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            fillna: 0
+            drop_stash: true
+
+        - stash_push_df: []
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id, business_team_id,business_team_name]
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - df_select:
+            - 'business_team_id in @p1'
+            - p1: [5e818b39887d1f61ebb4e595,5e818b38887d1f61ebb4e1dd]
+
+
+        - add_cols:
+            -   商圈成本_diff: 0
+                骑手成本_diff: 0
+                营业外收入_diff: 0
+                主营业务收入_diff: 0
+                商圈总成本_diff: 0
+                结算单量_diff: 0
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'商圈成本'] > 0,u'商圈成本_diff'] =  (df[u'商圈成本']- df[u'商圈成本_t2'])/df[u'商圈成本']
+                df.loc[df.loc[:,u'骑手成本'] > 0,u'骑手成本_diff'] =  (df[u'骑手成本']- df[u'骑手成本_t2'])/df[u'骑手成本']
+                df.loc[df.loc[:,u'营业外收入'] > 0,u'营业外收入_diff'] =  (df[u'营业外收入']- df[u'营业外收入_t2'])/df[u'营业外收入']
+                df.loc[df.loc[:,u'主营业务收入'] > 0,u'主营业务收入_diff'] =  (df[u'主营业务收入']- df[u'主营业务收入_t2'])/df[u'主营业务收入']
+                df.loc[df.loc[:,u'商圈总成本'] > 0,u'商圈总成本_diff'] =  (df[u'商圈总成本']- df[u'商圈总成本_t2'])/df[u'商圈总成本']
+                df.loc[df.loc[:,u'结算单量'] > 0,u'结算单量_diff'] =  (df[u'结算单量']- df[u'结算单量_t2'])/df[u'结算单量']
+                result = to_dd(df)
+        - df_set_column_val_if:
+            column: 商圈成本_comparison
+            condition: '[商圈成本_diff]>=@t1 | [商圈成本_diff]<=@t2'
+            params:
+              t1: 0.01
+              t2: -0.01
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 骑手成本_comparison
+            condition: '[骑手成本_diff]>=@t1 | [骑手成本_diff]<=@t2'
+            params:
+              t1: 0.01
+              t2: -0.01
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 营业外收入_comparison
+            condition: '[营业外收入_diff]>=@t1 | [营业外收入_diff]<=@t2'
+            params:
+              t1: 0.01
+              t2: -0.01
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 主营业务收入_comparison
+            condition: '[主营业务收入_diff]>=@t1 | [主营业务收入_diff]<=@t2'
+            params:
+              t1: 0.01
+              t2: -0.01
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 商圈总成本_comparison
+            condition: '[商圈总成本_diff]>=@t1 | [商圈总成本_diff]<=@t2'
+            params:
+              t1: 0.01
+              t2: -0.01
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 结算单量_comparison
+            condition: '[结算单量_diff]>=@t1 | [结算单量_diff]<=@t2'
+            params:
+              t1: 0.01
+              t2: -0.01
+            val: 1
+            else_val: 0
+
+        - fetch_cols:
+            columns: [dc_id,business_team_id,business_team_name,结算单量, 商圈成本, 骑手成本, 营业外收入, 主营业务收入, 商圈总成本 ,结算单量_t2, 商圈成本_t2, 骑手成本_t2, 营业外收入_t2, 主营业务收入_t2, 商圈总成本_t2,结算单量_comparison ,商圈成本_comparison,骑手成本_comparison,营业外收入_comparison,主营业务收入_comparison,商圈总成本_comparison,mark]
+
+
+
+    # 统计每个团队下属部门的数量及自身成本
+    - name: comparison_compass_financial_team_manage_num_cost
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id]
+        - stash_push_df: []
+        # 计算业主管理下级数量
+        - use_df:
+            key: std_qplus_team_map
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df[df[u'business_team_id'].notna()]
+                result = to_dd(df)
+        - df_groupby:
+            by: owner_team_id
+        - df_count:
+            column: dc_id
+            rename: 业主管理下级数量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,owner_team_id,coach_team_id,theater_team_id,division_team_id,business_team_id,business_team_name]
+        - df_select:
+            - 'business_team_id in @p1'
+            - p1: [5e818b38887d1f61ebb4e1dd,5e818b39887d1f61ebb4e595]
+        - stash_push_df: []
+        - stash_join_df:
+            on: owner_team_id
+            how: left
+            fillna: 0
+            drop_stash: true
+
+        - stash_push_df: []
+        # 计算私教管理下级数量
+        - df_select:
+            - '[业主管理下级数量] != 0'
+        - drop_duplicates:
+            - [owner_team_id,coach_team_id]
+        - df_groupby:
+            by: coach_team_id
+        - df_count:
+            column: owner_team_id
+            rename: 私教管理下级数量
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: coach_team_id
+            how: right
+            fillna: 0
+            drop_stash: true
+
+        - stash_push_df: []
+        # 计算大区管理下级数量
+        - df_select:
+            - '[私教管理下级数量] != 0'
+        - drop_duplicates:
+            - [coach_team_id,theater_team_id]
+        - df_groupby:
+            by: theater_team_id
+        - df_count:
+            column: coach_team_id
+            rename: 大区管理下级数量
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: theater_team_id
+            how: right
+            fillna: 0
+            drop_stash: true
+
+        - stash_push_df: []
+        # 计算分部管理下级数量
+        - df_select:
+            - '[大区管理下级数量] != 0'
+        - drop_duplicates:
+            - [theater_team_id,division_team_id]
+        - df_groupby:
+            by: division_team_id
+        - df_count:
+            column: theater_team_id
+            rename: 分部管理下级数量
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: division_team_id
+            how: right
+            fillna: 0
+            drop_stash: true
+
+        - stash_push_df: []
+        # 计算事业部管理下级数量
+        - df_select:
+            - '[分部管理下级数量] != 0'
+        - drop_duplicates:
+            - [division_team_id,business_team_id]
+        - df_groupby:
+            by: business_team_id
+        - df_count:
+            column: division_team_id
+            rename: 事业部管理下级数量
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: business_team_id
+            how: right
+            fillna: 0
+            drop_stash: true
+
+
+        - stash_push_df: []
+        # 获取业主团队成本
+        - use_df:
+            key: cost_revenue_owner_agg_owner
+            columns: [owner_team_id,owner_team_cost]
+        - stash_push_df: []
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+        # 获取私教团队成本
+        - use_df:
+            key: cost_revenue_coach_agg_coach
+            columns: [coach_team_id,coach_own_cost]
+        - stash_push_df: []
+        - stash_join_df:
+            on: coach_team_id
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+        # 获取大区团队成本
+        - use_df:
+            key: cost_revenue_theater_agg_theater
+            columns: [theater_team_id,theater_own_cost]
+        - stash_push_df: []
+        - stash_join_df:
+            on: theater_team_id
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+        # 获取分部团队成本
+        - use_df:
+            key: cost_revenue_division_agg_division
+            columns: [division_team_id,division_own_cost]
+        - stash_push_df: []
+        - stash_join_df:
+            on: division_team_id
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+        # 获取事业部团队成本
+        - use_df:
+            key: cost_revenue_business_agg_business
+            columns: [business_team_id,business_own_cost]
+        - stash_push_df: []
+        - stash_join_df:
+            on: business_team_id
+            how: right
+            drop_stash: true
+        - df_fillna:
+            columns: [owner_team_cost,coach_own_cost,theater_own_cost,division_own_cost,business_own_cost]
+            value: 0
+
+
+    # 统计无效商圈(罗盘中有，但新财报中没有的商圈),关联团队数量和成本信息
+    - name: comparison_compass_financial_invalid_dc
+      sync_result: true
+      cooks:
+        - use_df:
+            key: comparison_compass_financial_dc_base
+            columns: [dc_id,business_team_id,business_team_name, 结算单量, 商圈成本, 骑手成本, 营业外收入, 主营业务收入, 商圈总成本,商圈总成本_t2 ,mark]
+        - df_select:
+            - 'mark != 1'
+        - stash_push_df: []
+        - use_df:
+            key: comparison_compass_financial_team_manage_num_cost
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - df_groupby:
+            by: owner_team_id
+        - df_count:
+            column: dc_id
+            rename: 业主无效下级数量
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            fillna: 0
+            drop_stash: true
+
+        - stash_push_df: []
+        - drop_duplicates:
+            - [owner_team_id,coach_team_id]
+        - df_select:
+            - '[业主无效下级数量] == [业主管理下级数量]'
+        - df_groupby:
+            by: coach_team_id
+        - df_count:
+            column: owner_team_id
+            rename: 私教无效下级数量
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: coach_team_id
+            how: right
+            fillna: 0
+            drop_stash: true
+
+        - stash_push_df: []
+        - drop_duplicates:
+            - [theater_team_id,coach_team_id]
+        - df_select:
+            - '[私教无效下级数量] == [私教管理下级数量]'
+        - df_groupby:
+            by: theater_team_id
+        - df_count:
+            column: coach_team_id
+            rename: 大区无效下级数量
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: theater_team_id
+            how: right
+            fillna: 0
+            drop_stash: true
+
+        - stash_push_df: []
+        - drop_duplicates:
+            - [theater_team_id,division_team_id]
+        - df_select:
+            - '[大区无效下级数量] == [大区管理下级数量]'
+        - df_groupby:
+            by: division_team_id
+        - df_count:
+            column: theater_team_id
+            rename: 分部无效下级数量
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: division_team_id
+            how: right
+            fillna: 0
+            drop_stash: true
+
+
+
+    # 统计无效商圈条团队关系上的团队成本
+    - name: comparison_compass_financial_invalid_dc_team_cost
+      sync_result: true
+      cooks:
+        # 业主团队无效商圈影响下没有进入罗盘的成本
+        - use_df:
+            key: comparison_compass_financial_invalid_dc
+        - df_select:
+            - '[业主管理下级数量] == [业主无效下级数量] '
+        - drop_duplicates:
+            - [business_team_id,business_team_name,owner_team_cost]
+        - df_groupby:
+            by: [business_team_id,business_team_name]
+        - df_sum:
+            column: owner_team_cost
+            rename: 无效商圈业主成本
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                df2 = df[[u'business_team_id','business_team_name']]
+                df2.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                df2.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                if df.index.size == 0:
+                    df.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                    df.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                df = df.fillna(value=0)
+                df = pd.merge(df2,df,how='left',on=[u'business_team_id','business_team_name'])
+                result = to_dd(df)
+
+        - stash_push_df: []
+
+        # 私教团队无效商圈影响下没有进入罗盘的成本
+        - use_df:
+            key: comparison_compass_financial_invalid_dc
+        - df_select:
+            - '[私教管理下级数量] == [私教无效下级数量] '
+        - drop_duplicates:
+            - [business_team_id,business_team_name,coach_own_cost]
+        - df_groupby:
+            by: [business_team_id,business_team_name]
+        - df_sum:
+            column: coach_own_cost
+            rename: 无效商圈私教成本
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                if df.index.size == 0:
+                    df.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                    df.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                df = df.fillna(value=0)
+                result = to_dd(df)
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id,business_team_name]
+            how: right
+            fillna: 0
+            drop_stash: true
+        - stash_push_df: []
+
+        # 大区团队无效商圈影响下没有进入罗盘的成本
+        - use_df:
+            key: comparison_compass_financial_invalid_dc
+        - df_select:
+            - '[大区管理下级数量] == [大区无效下级数量] '
+        - drop_duplicates:
+            - [business_team_id,business_team_name,theater_own_cost]
+        - df_groupby:
+            by: [business_team_id,business_team_name]
+        - df_sum:
+            column: theater_own_cost
+            rename: 无效商圈大区成本
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                if df.index.size == 0:
+                    df.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                    df.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                df = df.fillna(value=0)
+                result = to_dd(df)
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id,business_team_name]
+            how: right
+            fillna: 0
+            drop_stash: true
+        - stash_push_df: []
+
+        # 分部团队无效商圈影响下没有进入罗盘的成本
+        - use_df:
+            key: comparison_compass_financial_invalid_dc
+        - df_select:
+            - '[分部管理下级数量] == [分部无效下级数量] '
+        - drop_duplicates:
+            - [business_team_id,business_team_name,division_own_cost]
+        - df_groupby:
+            by: [business_team_id,business_team_name]
+        - df_sum:
+            column: division_own_cost
+            rename: 无效商圈分部成本
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                if df.index.size == 0:
+                    df.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                    df.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                df = df.fillna(value=0)
+                result = to_dd(df)
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id,business_team_name]
+            how: right
+            fillna: 0
+            drop_stash: true
+        - df_eval:
+            - |
+                [无效商圈业主成本] = [无效商圈业主成本]/100
+                [无效商圈私教成本] = [无效商圈私教成本]/100
+                [无效商圈大区成本] = [无效商圈大区成本]/100
+                [无效商圈分部成本] = [无效商圈分部成本]/100
+        - stash_push_df: []
+
+        # 计算无效商圈，商圈收入和成本
+        - use_df:
+            key: comparison_compass_financial_invalid_dc
+            columns: [dc_id,business_team_id,business_team_name, 结算单量, 商圈成本, 骑手成本, 营业外收入, 主营业务收入, 商圈总成本]
+            rename:
+                结算单量: 结算单量_无效商圈
+                商圈成本: 商圈成本_无效商圈
+                骑手成本: 骑手成本_无效商圈
+                营业外收入: 营业外收入_无效商圈
+                主营业务收入: 主营业务收入_无效商圈
+                商圈总成本: 商圈总成本_无效商圈
+        - df_groupby:
+            by: [business_team_id,business_team_name]
+        - df_sum:
+            column: [结算单量_无效商圈,商圈成本_无效商圈,骑手成本_无效商圈,营业外收入_无效商圈,主营业务收入_无效商圈,商圈总成本_无效商圈]
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id,business_team_name]
+            how: right
+            fillna: 0
+            drop_stash: true
+        - df_eval:
+            - |
+                [总成本差值_无效商圈] = [商圈总成本_无效商圈] + [无效商圈业主成本] + [无效商圈私教成本] + [无效商圈大区成本] + [无效商圈分部成本]
+                [团队成本差值_无效商圈] = [无效商圈业主成本] + [无效商圈私教成本] + [无效商圈大区成本] + [无效商圈分部成本]
+                [总收入差值_无效商圈] = [营业外收入_无效商圈] + [主营业务收入_无效商圈]
+                [总利润差值_无效商圈] = [总收入差值_无效商圈] - [总成本差值_无效商圈]
+
+
+
+
+    # 无下级团队明细表
+    - name: comparison_compass_financial_no_subordinate_team_info
+      sync_result: true
+      cooks:
+        - use_df:
+            key: comparison_compass_financial_team_manage_num_cost
+        - df_select:
+            - '([业主管理下级数量] == 0)|([私教管理下级数量] == 0)|([大区管理下级数量] == 0)|([分部管理下级数量] == 0)'
+        - df_eval:
+            - |
+                [business_own_cost] = [business_own_cost]/100
+                [division_own_cost] = [division_own_cost]/100
+                [theater_own_cost] = [theater_own_cost]/100
+                [coach_own_cost] = [coach_own_cost]/100
+                [owner_team_cost] = [owner_team_cost]/100
+        - fetch_cols:
+            - [business_team_id,business_own_cost,division_team_id,division_own_cost,theater_team_id,theater_own_cost,coach_team_id,coach_own_cost,owner_team_id,owner_team_cost,dc_id]
+
+
+    # 计算无下级团队的各级团队成本
+    - name: comparison_compass_financial_no_subordinate_team_cost
+      sync_result: true
+      cooks:
+        # 业主成本
+        - use_df:
+            key: comparison_compass_financial_team_manage_num_cost
+        - df_select:
+            - '[业主管理下级数量] == 0'
+        - drop_duplicates:
+            - [owner_team_id,owner_team_cost,business_team_id,business_team_name]
+        - df_groupby:
+            by: [business_team_id,business_team_name]
+        - df_sum:
+            column: [owner_team_cost]
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                df2 = df[[u'business_team_id','business_team_name']]
+                df2.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                df2.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                if df.index.size == 0:
+                    df.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                    df.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                df = df.fillna(value=0)
+                df = pd.merge(df2,df,how='left',on=[u'business_team_id','business_team_name'])
+                result = to_dd(df)
+
+
+        # 私教成本
+        - stash_push_df: []
+        - use_df:
+            key: comparison_compass_financial_team_manage_num_cost
+        - df_select:
+            - '[私教管理下级数量] == 0'
+        - drop_duplicates:
+            - [coach_team_id,coach_own_cost,business_team_id,business_team_name]
+        - df_groupby:
+            by: [business_team_id,business_team_name]
+        - df_sum:
+            column: [coach_own_cost]
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                df2 = df[[u'business_team_id','business_team_name']]
+                df2.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                df2.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                if df.index.size == 0:
+                    df.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                    df.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                df = df.fillna(value=0)
+                df = pd.merge(df2,df,how='left',on=[u'business_team_id','business_team_name'])
+                result = to_dd(df)
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id,business_team_name]
+            how: right
+            fillna: 0
+            drop_stash: true
+
+        # 大区成本
+        - stash_push_df: []
+        - use_df:
+            key: comparison_compass_financial_team_manage_num_cost
+        - df_select:
+            - '[大区管理下级数量] == 0'
+        - drop_duplicates:
+            - [theater_team_id,theater_own_cost,business_team_id,business_team_name]
+        - df_groupby:
+            by: [business_team_id,business_team_name]
+        - df_sum:
+            column: [theater_own_cost]
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                df2 = df[[u'business_team_id','business_team_name']]
+                df2.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                df2.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                if df.index.size == 0:
+                    df.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                    df.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                df = df.fillna(value=0)
+                df = pd.merge(df2,df,how='left',on=[u'business_team_id','business_team_name'])
+                result = to_dd(df)
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id,business_team_name]
+            how: right
+            fillna: 0
+            drop_stash: true
+
+        # 分部成本
+        - stash_push_df: []
+        - use_df:
+            key: comparison_compass_financial_team_manage_num_cost
+        - df_select:
+            - '[分部管理下级数量] == 0'
+        - drop_duplicates:
+            - [division_team_id,division_own_cost,business_team_id,business_team_name]
+        - df_groupby:
+            by: [business_team_id,business_team_name]
+        - df_sum:
+            column: [division_own_cost]
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                df2 = df[[u'business_team_id','business_team_name']]
+                df2.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                df2.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                if df.index.size == 0:
+                    df.loc[0,[u'business_team_id','business_team_name']] = [u'5e818b38887d1f61ebb4e1dd',u'事业一部']
+                    df.loc[1,[u'business_team_id','business_team_name']] = [u'5e818b39887d1f61ebb4e595',u'事业二部']
+                df = df.fillna(value=0)
+                df = pd.merge(df2,df,how='left',on=[u'business_team_id','business_team_name'])
+                result = to_dd(df)
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id,business_team_name]
+            how: right
+            fillna: 0
+            drop_stash: true
+        - df_eval:
+            - |
+                [无下级分部成本] = [division_own_cost]/100
+                [无下级大区成本] = [theater_own_cost]/100
+                [无下级私教成本] = [coach_own_cost]/100
+                [无下级业主成本] = [owner_team_cost]/100
+                [无下级总成本] = [无下级分部成本]+[无下级大区成本]+[无下级私教成本]+[无下级业主成本]
+        - fetch_cols:
+            columns: [business_team_name,business_team_id,无下级分部成本,无下级大区成本,无下级私教成本,无下级业主成本,无下级总成本]
+
+        - dask_apply_dtypes:
+            dtypes:
+              business_team_id: unicode
+              business_team_name: unicode
+              无下级分部成本: float
+              无下级大区成本: float
+              无下级私教成本: float
+              无下级业主成本: float
+              无下级总成本: float
+
+
+
+    # 财报团队成本
+    - name: comparison_compass_financial_financial_team_cost
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_owner_agg_owner
+            columns: [business_team_id,owner_team_cost]
+        - df_select:
+            - 'business_team_id in @p1'
+            - p1: [5e818b39887d1f61ebb4e595,5e818b38887d1f61ebb4e1dd]
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: owner_team_cost
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: cost_revenue_coach_agg_coach
+            columns: [business_team_id,coach_own_cost]
+        - df_select:
+            - 'business_team_id in @p1'
+            - p1: [5e818b39887d1f61ebb4e595,5e818b38887d1f61ebb4e1dd]
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: coach_own_cost
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: cost_revenue_theater_agg_theater
+            columns: [business_team_id,theater_own_cost]
+        - df_select:
+            - 'business_team_id in @p1'
+            - p1: [5e818b39887d1f61ebb4e595,5e818b38887d1f61ebb4e1dd]
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: theater_own_cost
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: cost_revenue_division_agg_division
+            columns: [business_team_id,division_own_cost]
+        - df_select:
+            - 'business_team_id in @p1'
+            - p1: [5e818b39887d1f61ebb4e595,5e818b38887d1f61ebb4e1dd]
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: division_own_cost
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: cost_revenue_business_agg_business
+            columns: [business_team_id,business_own_cost]
+
+        - df_select:
+            - 'business_team_id in @p1'
+            - p1: [5e818b39887d1f61ebb4e595,5e818b38887d1f61ebb4e1dd]
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: business_own_cost
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id]
+            how: right
+            drop_stash: true
+
+        - df_eval:
+            - |
+                [财报_事业部自身成本] = [business_own_cost]/100
+                [财报_分部自身成本] = [division_own_cost]/100
+                [财报_大区自身成本] = [theater_own_cost]/100
+                [财报_私教自身成本] = [coach_own_cost]/100
+                [财报_业主自身成本] = [owner_team_cost]/100
+                [财报_团队总成本] = [财报_事业部自身成本]+[财报_分部自身成本]+[财报_大区自身成本]+[财报_私教自身成本]+[财报_业主自身成本]
+        - fetch_cols:
+            - [business_team_id,财报_团队总成本,财报_事业部自身成本,财报_分部自身成本,财报_大区自身成本,财报_私教自身成本,财报_业主自身成本]
+
+
+    # 罗盘团队成本
+    - name: comparison_compass_financial_compass_team_cost
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_owner_label_chain
+            columns: [business_team_id,业主自身成本]
+            rename:
+              业主自身成本: 罗盘_业主自身成本
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: 罗盘_业主自身成本
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_coach_label_chain
+            columns: [business_team_id,私教自身成本]
+            rename:
+              私教自身成本: 罗盘_私教自身成本
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: 罗盘_私教自身成本
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_theater_label_chain
+            columns: [business_team_id,大区自身成本]
+            rename:
+              大区自身成本: 罗盘_大区自身成本
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: 罗盘_大区自身成本
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_division_label_chain
+            columns: [business_team_id,分部自身成本]
+            rename:
+              分部自身成本: 罗盘_分部自身成本
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: 罗盘_分部自身成本
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_business_label_base
+            columns: [business_team_id,事业部自身成本]
+            rename:
+              事业部自身成本: 罗盘_事业部自身成本
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: 罗盘_事业部自身成本
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id]
+            how: right
+            drop_stash: true
+
+        - df_eval:
+            exp_str: '[罗盘_团队总成本] = [罗盘_业主自身成本] + [罗盘_私教自身成本] + [罗盘_大区自身成本] + [罗盘_分部自身成本] + [罗盘_事业部自身成本]'
+
+
+
+    # 财报与罗盘对比结果
+    - name: comparison_compass_financial_result
+      sync_result: true
+      cooks:
+        - use_df:
+            key: comparison_compass_financial_no_subordinate_team_cost
+        - stash_push_df: []
+        - use_df:
+            key: comparison_compass_financial_invalid_dc_team_cost
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id,business_team_name]
+            how: right
+            drop_stash: true
+
+        - df_eval:
+            - |
+                [总团队成本差值] = [无下级总成本] + [团队成本差值_无效商圈]
+                [总成本差值] = [总成本差值_无效商圈] + [无下级总成本]
+                [总收入差值] = [总收入差值_无效商圈]
+                [总利润差值] = [总收入差值] - [总成本差值]
+        - stash_push_df: []
+        - use_df:
+            key: compass_business_label_base
+            columns: [business_team_id,收入,主营业务收入,营业外收入,事业部总成本,事业部利润,完成单量]
+            rename:
+              收入: 罗盘_收入
+              事业部总成本: 罗盘_事业部总成本
+              事业部利润: 罗盘_事业部利润
+              主营业务收入: 罗盘_主营业务收入
+              营业外收入: 罗盘_营业外收入
+              完成单量: 罗盘_结算单量
+        - stash_push_df: []
+        - use_df:
+            key: comparison_compass_financial_invalid_dc
+            columns: [business_team_id,dc_id]
+        - df_groupby:
+            by: business_team_id
+        - df_count:
+            column: dc_id
+            rename: 无效商圈数量
+        - df_reset_index: []
+
+        - stash_push_df: []
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [business_team_id,dc_id]
+        - df_groupby:
+            by: business_team_id
+        - df_count:
+            column: dc_id
+            rename: 有效商圈数量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: cost_revenue_dc_agg_dc
+            columns: [business_team_id,'51001',main_business_income,outside_business_income,assets_income]
+            rename:
+              '51001': 财报_结算单量
+              main_business_income: 财报_主营业务收入
+              outside_business_income: 财报_营业外收入
+              assets_income: 财报_商圈总成本
+        - df_select:
+            - 'business_team_id in @p1'
+            - p1: [5e818b39887d1f61ebb4e595,5e818b38887d1f61ebb4e1dd]
+        - df_eval:
+            - |
+                [财报_结算单量] = [财报_结算单量]
+                [财报_主营业务收入] = [财报_主营业务收入]/100
+                [财报_营业外收入] = [财报_营业外收入]/100
+                [财报_商圈总成本] = [财报_商圈总成本]/100
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: [财报_结算单量,财报_主营业务收入,财报_营业外收入,财报_商圈总成本]
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [business_team_id,商圈总成本]
+            rename:
+              商圈总成本: 罗盘_商圈总成本
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: 罗盘_商圈总成本
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: comparison_compass_financial_financial_team_cost
+        - stash_push_df: []
+        - use_df:
+            key: comparison_compass_financial_compass_team_cost
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id]
+            how: right
+            drop_stash: true
+
+        - df_eval:
+            - |
+                [差值_业主自身成本] = [无效商圈业主成本] + [无下级业主成本]
+                [差值_私教自身成本] = [无效商圈私教成本] + [无下级私教成本]
+                [差值_大区自身成本] = [无效商圈大区成本] + [无下级大区成本]
+                [差值_分部自身成本] = [无效商圈分部成本] + [无下级分部成本]
+                [差值_事业部自身成本] = [财报_事业部自身成本] - [罗盘_事业部自身成本]
+
+
+
+
+
+
+

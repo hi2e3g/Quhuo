@@ -1,0 +1,2844 @@
+new_financial_form_snap_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+    # 源数据
+    # 团队关系表
+    - std_qplus_team_map
+    # 团队提报数据
+    - std_qplus_cost_revenue_act
+    # 团队表
+    - std_qplus_team
+    # 资产表
+    - std_qplus_dc
+    # 饿了么T+2骑手单量数据
+    - ele_worker_order_common_kpi_by_monthly_t2
+    # 美团T+2骑手单量数据
+    - mt_worker_order_common_kpi_by_monthly_t2
+    # 饿了么T+2收入数据
+    - ele_teams_basic_lable_by_daily_t2
+    # 美团T+2收入数据
+    - mt_teams_basic_lable_by_daily_t2
+
+
+
+  play:
+
+    # 团队维度处理
+    # 筛选数据
+
+    # 增加有单骑手字段
+    - name: cost_revenue_team_knight_num
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_worker_order_common_kpi_by_monthly_t2
+            columns: [dc_id,骑手ID,完成单量]
+        - stash_push_df: []
+
+        - use_df:
+            key: mt_worker_order_common_kpi_by_monthly_t2
+            columns: [dc_id,骑手ID,总完成单量]
+            rename:
+              总完成单量: 完成单量
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+        - df_select:
+            - '[完成单量]>0'
+
+        - df_groupby:
+            by: dc_id
+
+        - df_count:
+            column: 骑手ID
+            rename: riders_with_orders
+        - df_reset_index: []
+
+    # 新增商圈资产数
+    - name: cost_revenue_team_dc_num
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id]
+
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+
+        - add_cols:
+            - assets_dc_num: 1
+        - stash_push_df: []
+
+        - use_df:
+            key: cost_revenue_team_knight_num
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['assets_dc_num','riders_with_orders']
+            value: 0.0
+
+
+    # 商圈团队提报数据处理
+    - name: cost_revenue_team_dc
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [accounting_code,money,dc_id,cost_center_type]
+        - run_py:
+            - |
+                df = df[(df['cost_center_type']== 12) | ((df['cost_center_type']==11) & (df['dc_id'] != 'None'))]
+                df = to_df(df)
+                if df.index.size ==0:
+                    df.loc[0,u'accounting_code'] = u'123456'
+                    df[u'dc_id'] = u'occupad_id'
+                result = df
+
+        - df_groupby:
+            by: [accounting_code,dc_id]
+        - df_sum:
+            column: money
+        - df_reset_index: []
+
+        - df_pivot_table:
+            index: dc_id
+            columns: accounting_code
+            values: money
+        - df_reset_index: []
+
+        - pad_cols:
+            columns: ["51001","41001","41011","41012","41002","41013","41014","41003","41005","41006","41015","41016","41004","41007","41008","41009","41010","41018","41017","41019","41102","41103","6100101","6100102","3100101","3100401","3100201","3120101","6100202","3160201","31305"]
+            default_value: 0.0
+        - df_fillna:
+            columns: ["51001","41001","41011","41012","41002","41013","41014","41003","41005","41006","41015","41016","41004","41007","41008","41009","41010","41018","41017","41019","41102","41103","6100101","6100102","3100101","3100401","3100201","3120101","6100202","3160201","31305"]
+            value: 0
+
+
+          # 二级指标计算
+          # 结算单量
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: settlement_order_quantity_second
+            src_columns: ['51001']
+        # 平台基础收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: platform_basic_income
+            src_columns: ['41001','41011','41012']
+        # 平台KPI收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: platform_KPI_income
+            src_columns: ['41002','41013','41014']
+        # 平台政策收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: platform_policy_income
+            src_columns: ['41003','41005','41006','41015','41016']
+        # 平台运营罚款收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: platform_fine_income
+            src_columns: ['41004','41007','41008','41009','41010','41018']
+        # 强分摊收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: strong_allocation_income
+            src_columns: ['41017','41019']
+        # 非常规收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: unconventional_income
+            src_columns: ['41102','41103']
+        # 骑士工资
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: knight_wages
+            src_columns: ['6100101','6100102']
+        # 骑士保障
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: knight_safeguard
+            src_columns: ['3100101','3100401','3100201']
+        # 骑士福利
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: knight_welfare
+            src_columns: ['3120101']
+
+        # 一级指标计算
+        # 结算单量
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: settlement_order_quantity_first
+            src_columns: [settlement_order_quantity_second]
+        # 主营业务收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: main_business_income
+            src_columns: [platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income]
+        # 营业外收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: outside_business_income
+            src_columns: [unconventional_income]
+        # 资产成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: assets_income
+            src_columns: [knight_wages,knight_safeguard,knight_welfare]
+
+        # '''此处表示为减法运算'''
+        # 统计指标计算
+        # 骑士利润（扣强分摊）
+        - df_eval:
+            exp_str: 'asset_gross_profit_deduction_strong_allocation = main_business_income - strong_allocation_income - assets_income'
+
+        # 骑士利润
+        - df_eval:
+            exp_str: 'asset_gross_profit = main_business_income - assets_income'
+
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id,label_name,vendor_dc_id]
+            rename:
+              label_name: label
+              vendor_dc_id: 站点ID
+
+        - run_py:
+            - |
+                df[u'label_name'] = df[u'label'].apply(lambda x: x if x in [u'菜大全',u'盒马-人力',u'智能柜',u'跑腿',u'奈雪',u'星巴克',u'喜茶',u'淘鲜达',u'陶陶居',u'瑞幸咖啡',u'买菜',u'肯德基',u'京东到家',u'盒马',u'高端运力',u'必胜客',u'智能柜',u'昔客堡',u'平台'] else u"无标签")
+                df[u'dc_label'] = df[u'label_name'].apply(lambda x: u"外卖" if x == u'平台' else u'非外卖')
+                result = df[[u'dc_id',u'label_name',u'站点ID',u'dc_label']]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            drop_stash: true
+
+        - stash_push_df: []
+
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,dc_name,owner_team_id,owner_team_name,coach_team_id,coach_team_name,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [dc_id,dc_name,owner_team_id,owner_team_name,coach_team_id,coach_team_name,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+
+
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+
+        - use_df:
+            key: cost_revenue_team_dc_num
+            columns: ['dc_id','riders_with_orders','assets_dc_num']
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+
+
+
+
+    # 商圈科目，为关联到业主级别做处理
+    - name: cost_revenue_dc_to_owner
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: [dc_id,"3160201","6100202","31305"]
+        - stash_push_df: []
+
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,owner_team_id]
+        - drop_duplicates:
+            - [dc_id,owner_team_id]
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            drop_stash: true
+
+        - df_groupby:
+            by: owner_team_id
+        - df_sum:
+            column: ["3160201","6100202","31305"]
+        - df_reset_index: []
+
+
+    # 商圈聚合到商圈
+    - name: cost_revenue_dc_agg_dc
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: ['dc_id','label_name','dc_label','51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+    # 商圈聚合到业主
+    - name: cost_revenue_dc_agg_owner
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: [owner_team_id,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        # 分组聚合操作
+        - df_groupby:
+            by: [owner_team_id]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: owner_team_id
+              team_name: owner_team_name
+        - df_select:
+            - 'team_type == 50'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [owner_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num,riders_with_orders,assets_dc_num]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [owner_team_id,coach_team_id,coach_team_name,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [owner_team_id,coach_team_id,coach_team_name,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [owner_team_id]
+            how: right
+            drop_stash: true
+
+    # 商圈聚合到私教
+    - name: cost_revenue_dc_agg_coach
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: [coach_team_id,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        # 分组聚合操作
+        - df_groupby:
+            by: [coach_team_id]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: coach_team_id
+              team_name: coach_team_name
+        - df_select:
+            - 'team_type == 10'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [coach_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [coach_team_id,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [coach_team_id,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [coach_team_id]
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [owner_team_id,coach_team_id,dc_id]
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+
+        - drop_duplicates:
+            - [owner_team_id,coach_team_id]
+
+        - df_groupby:
+            by: coach_team_id
+        - df_count:
+            column: owner_team_id
+            rename: owner_num
+
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [coach_team_id]
+            how: right
+            drop_stash: true
+
+        - df_select:
+            - 'coach_team_id != @p1'
+            - p1: nan
+
+    # 商圈聚合到私教(分商圈类型)
+    - name: cost_revenue_dc_agg_coach_label
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: [coach_team_id,label_name,dc_label,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            rename:
+              dc_label: parent_label
+        # 分组聚合操作
+        - df_groupby:
+            by: [coach_team_id,label_name,parent_label]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: coach_team_id
+              team_name: coach_team_name
+        - df_select:
+            - 'team_type == 10'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [coach_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            value: 0.0
+
+        # 骑士利润率（扣强分摊）、骑士利润率(标签维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df[df[u'label_name'].notna()]
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - stash_push_df: []
+
+        - df_groupby:
+            by: [coach_team_id,team_type,coach_team_name,parent_label]
+
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num,gross_profit_margin(deduction_strong_allocation),gross_profit_margin]
+
+        - df_reset_index: []
+        # 骑士利润率（扣强分摊）、骑士利润率(外卖、非外卖维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - df_rename_columns:
+            - parent_label: label_name
+
+        - add_cols:
+            - parent_label: ''
+
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [coach_team_id,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [coach_team_id,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [coach_team_id]
+            how: right
+            drop_stash: true
+
+
+    # 商圈聚合到大区
+    - name: cost_revenue_dc_agg_theater
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: [theater_team_id,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        # 分组聚合操作
+        - df_groupby:
+            by: [theater_team_id]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: theater_team_id
+              team_name: theater_team_name
+        - df_select:
+            - 'team_type == 20'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [theater_team_id,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [theater_team_id,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [theater_team_id,coach_team_id,dc_id]
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+
+        - drop_duplicates:
+            - [theater_team_id,coach_team_id]
+
+        - df_groupby:
+            by: theater_team_id
+        - df_count:
+            column: coach_team_id
+            rename: coach_num
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [theater_team_id,owner_team_id,dc_id]
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+        - drop_duplicates:
+            - [theater_team_id,owner_team_id]
+
+        - df_groupby:
+            by: theater_team_id
+        - df_count:
+            column: owner_team_id
+            rename: owner_num
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: right
+            drop_stash: true
+        - df_select:
+            - 'theater_team_id != @p1'
+            - p1: nan
+
+
+    # 商圈聚合到大区(分商圈类型)
+    - name: cost_revenue_dc_agg_theater_label
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: [theater_team_id,label_name,dc_label,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            rename:
+              dc_label: parent_label
+        # 分组聚合操作
+        - df_groupby:
+            by: [theater_team_id,label_name,parent_label]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: theater_team_id
+              team_name: theater_team_name
+        - df_select:
+            - 'team_type == 20'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            value: 0.0
+
+        # 骑士利润率（扣强分摊）、骑士利润率(标签维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df[df[u'label_name'].notna()]
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - stash_push_df: []
+
+        - df_groupby:
+            by: [theater_team_id,team_type,theater_team_name,parent_label]
+
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num,gross_profit_margin(deduction_strong_allocation),gross_profit_margin]
+
+        - df_reset_index: []
+        # 骑士利润率（扣强分摊）、骑士利润率(外卖、非外卖维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - df_rename_columns:
+            - parent_label: label_name
+
+        - add_cols:
+            - parent_label: ''
+
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [theater_team_id,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [theater_team_id,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: right
+            drop_stash: true
+
+
+
+
+    # 商圈聚合到分部
+    - name: cost_revenue_dc_agg_division
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: [division_team_id,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        # 分组聚合操作
+        - df_groupby:
+            by: [division_team_id]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: division_team_id
+              team_name: division_team_name
+        - df_select:
+            - 'team_type == 30'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [division_team_id,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [division_team_id,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [division_team_id,theater_team_id,dc_id]
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+
+        - drop_duplicates:
+            - [division_team_id,theater_team_id]
+
+        - df_groupby:
+            by: division_team_id
+        - df_count:
+            column: theater_team_id
+            rename: theater_num
+        - df_reset_index: []
+        - stash_push_df: []
+
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [division_team_id,coach_team_id,dc_id]
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+
+        - drop_duplicates:
+            - [division_team_id,coach_team_id]
+
+        - df_groupby:
+            by: division_team_id
+        - df_count:
+            column: coach_team_id
+            rename: coach_num
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [division_team_id,owner_team_id,dc_id]
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+
+        - drop_duplicates:
+            - [division_team_id,owner_team_id]
+
+        - df_groupby:
+            by: division_team_id
+        - df_count:
+            column: owner_team_id
+            rename: owner_num
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: right
+            drop_stash: true
+        - df_select:
+            - 'division_team_id != @p1'
+            - p1: nan
+
+
+
+    # 商圈聚合到分部(分商圈类型)
+    - name: cost_revenue_dc_agg_division_label
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: [division_team_id,label_name,dc_label,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            rename:
+              dc_label: parent_label
+        # 分组聚合操作
+        - df_groupby:
+            by: [division_team_id,label_name,parent_label]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: division_team_id
+              team_name: division_team_name
+        - df_select:
+            - 'team_type == 30'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            value: 0.0
+
+        # 骑士利润率（扣强分摊）、骑士利润率(标签维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df[df[u'label_name'].notna()]
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - stash_push_df: []
+
+        - df_groupby:
+            by: [division_team_id,team_type,division_team_name,parent_label]
+
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num,gross_profit_margin(deduction_strong_allocation),gross_profit_margin]
+
+        - df_reset_index: []
+
+        - df_rename_columns:
+            - parent_label: label_name
+
+        - add_cols:
+            - parent_label: ''
+
+        - stash_push_df: []
+        # 骑士利润率（扣强分摊）、骑士利润率(外卖、非外卖维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - stash_concat_df:
+            drop_stash: True
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [division_team_id,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [division_team_id,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: right
+            drop_stash: true
+
+
+
+
+    # 商圈聚合到事业部
+    - name: cost_revenue_dc_agg_business
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: [business_team_id,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        # 分组聚合操作
+        - df_groupby:
+            by: [business_team_id]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: business_team_id
+              team_name: business_team_name
+        - df_select:
+            - 'team_type == 40'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [business_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            value: 0.0
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [business_team_id,division_team_id,dc_id]
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+
+        - drop_duplicates:
+            - [business_team_id,division_team_id]
+
+        - df_groupby:
+            by: business_team_id
+        - df_count:
+            column: division_team_id
+            rename: division_num
+        - df_reset_index: []
+        - stash_push_df: []
+
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [business_team_id,theater_team_id,dc_id]
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+
+        - drop_duplicates:
+            - [business_team_id,theater_team_id]
+
+        - df_groupby:
+            by: business_team_id
+        - df_count:
+            column: theater_team_id
+            rename: theater_num
+        - df_reset_index: []
+        - stash_push_df: []
+
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [business_team_id,coach_team_id,dc_id]
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+        - drop_duplicates:
+            - [business_team_id,coach_team_id]
+
+        - df_groupby:
+            by: business_team_id
+        - df_count:
+            column: coach_team_id
+            rename: coach_num
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [business_team_id,owner_team_id,dc_id]
+        - df_select:
+            - 'dc_id != @p1'
+            - p1: nan
+
+        - drop_duplicates:
+            - [business_team_id,owner_team_id]
+
+        - df_groupby:
+            by: business_team_id
+        - df_count:
+            column: owner_team_id
+            rename: owner_num
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [business_team_id]
+            how: right
+            drop_stash: true
+        - df_select:
+            - 'business_team_id != @p1'
+            - p1: nan
+
+
+    # 商圈聚合到事业部(分商圈类型)
+    - name: cost_revenue_dc_agg_business_label
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_dc
+            columns: [business_team_id,label_name,dc_label,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            rename:
+              dc_label: parent_label
+        # 分组聚合操作
+        - df_groupby:
+            by: [business_team_id,label_name,parent_label]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: business_team_id
+              team_name: business_team_name
+        - df_select:
+            - 'team_type == 40'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [business_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            value: 0.0
+
+        # 骑士利润率（扣强分摊）、骑士利润率(标签维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df[df[u'label_name'].notna()]
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - stash_push_df: []
+
+        - df_groupby:
+            by: [business_team_id,team_type,business_team_name,parent_label]
+
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',"6100202","3160201","31305",settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num,gross_profit_margin(deduction_strong_allocation),gross_profit_margin]
+
+        - df_reset_index: []
+        # 骑士利润率（扣强分摊）、骑士利润率(外卖、非外卖维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+
+        - df_rename_columns:
+            - parent_label: label_name
+
+        - add_cols:
+            - parent_label: ''
+
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+
+
+
+
+
+    # 业主团队提报数据处理
+    - name: cost_revenue_team_owner
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [accounting_code,money,team_id,team_type]
+            rename:
+              team_id: owner_team_id
+        - df_select:
+            - 'team_type == 50'
+
+        - run_py:
+            - |
+                df = to_df(df)
+                if df.index.size ==0:
+                    df.loc[0,u'accounting_code'] = u'123456'
+                    df[u'owner_team_id'] = u'occupad_id'
+                result = df
+
+
+        - df_groupby:
+            by: [accounting_code,owner_team_id]
+        - df_sum:
+            column: money
+        - df_reset_index: []
+
+        - df_pivot_table:
+            index: owner_team_id
+            columns: accounting_code
+            values: money
+        - df_reset_index: []
+        - pad_cols:
+            columns: ["6100201","6100203","3100102","3100202","31101","31103","31104","3120102","31202","31203","31204","31205","31302","31303","31304","31401","31402","31403","31404","3150101","3150201"]
+            default_value: 0.0
+        
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [owner_team_id,owner_team_name,coach_team_id,coach_team_name,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [owner_team_id,owner_team_name,coach_team_id,coach_team_name,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+
+        # - df_select_notna:
+        #     column: owner_team_id
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [owner_team_id]
+            how: left
+            drop_stash: true
+
+        - stash_push_df: []
+        
+        # 资产级别的科目 "3160201","6100202","31305"
+        - use_df:
+            key: cost_revenue_dc_to_owner
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [owner_team_id]
+            how: right
+            drop_stash: true
+
+        - df_fillna:
+            columns: ["6100201","6100203","3100102","3100202","31101","31103","31104","3120102","31202","31203","31204","31205","31302","31303","31304","31401","31402","31403","31404","3150101","3150201","3160201","6100202","31305"]
+            value: 0
+
+
+
+        # 二级指标计算
+        # 工资成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: wage_cost
+            src_columns: ['6100201','6100203','6100202']
+
+        # 人员费用
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: personnel_cost
+            src_columns: ['3100102','3100202']
+
+        # 房屋费用
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: rental_housing_cost
+            src_columns: ['31101','31103','31104']
+
+        # 管理费用
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: governance_cost
+            src_columns: ['3120102','31202','31203','31204','31205','3160201']
+
+        # 装备成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: equipment_cost
+            src_columns: ['31302','31303','31304','31305']
+
+        # 招聘成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: recruitment_cost
+            src_columns: ['31401','31402','31403','31404']
+
+        # 意外成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: unexpected_cost
+            src_columns: ['3150101','3150201']
+
+
+        # """一级指标计算"""
+        # 业主自身成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: owner_own_cost1
+            src_columns: [wage_cost,personnel_cost,rental_housing_cost,governance_cost]
+        # 业主自身大额成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: owner_own_cost2
+            src_columns: [equipment_cost,recruitment_cost,unexpected_cost]
+
+          # """统计指标"""
+          # 业主团队成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: owner_team_cost
+            src_columns: [owner_own_cost1,owner_own_cost2]
+
+    # 业主聚合到业主
+    - name: cost_revenue_owner_agg_owner
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_owner
+            columns: [owner_team_id,'6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [owner_team_id]
+        - df_sum:
+            column: ['6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: owner_team_id
+              team_name: owner_team_name
+        - df_select:
+            - 'team_type == 50'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [owner_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [owner_team_id,coach_team_id,coach_team_name,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [owner_team_id,coach_team_id,coach_team_name,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [owner_team_id]
+            how: right
+            drop_stash: true
+
+    # 业主聚合到私教
+    - name: cost_revenue_owner_agg_coach
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_owner
+            columns: [coach_team_id,'6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [coach_team_id]
+        - df_sum:
+            column: ['6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: coach_team_id
+              team_name: coach_team_name
+        - df_select:
+            - 'team_type == 10'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [coach_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [coach_team_id,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [coach_team_id,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [coach_team_id]
+            how: right
+            drop_stash: true
+
+    # 业主聚合到大区
+    - name: cost_revenue_owner_agg_theater
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_owner
+            columns: [theater_team_id,'6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [theater_team_id]
+        - df_sum:
+            column: ['6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: theater_team_id
+              team_name: theater_team_name
+        - df_select:
+            - 'team_type == 20'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [theater_team_id,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [theater_team_id,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: right
+            drop_stash: true
+
+    # 业主聚合到分部
+    - name: cost_revenue_owner_agg_division
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_owner
+            columns: [division_team_id,'6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [division_team_id]
+        - df_sum:
+            column: ['6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: division_team_id
+              team_name: division_team_name
+        - df_select:
+            - 'team_type == 30'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [division_team_id,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [division_team_id,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: right
+            drop_stash: true
+
+    # 业主聚合到事业部
+    - name: cost_revenue_owner_agg_business
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_owner
+            columns: [business_team_id,'6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [business_team_id]
+        - df_sum:
+            column: ['6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: business_team_id
+              team_name: business_team_name
+        - df_select:
+            - 'team_type == 40'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [business_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','6100202','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160201','31302','31303','31304','31305','31401','31402','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,equipment_cost,recruitment_cost,unexpected_cost,owner_own_cost1,owner_own_cost2,owner_team_cost]
+            value: 0.0
+
+
+
+
+
+
+
+    # 处理未打标签但成本归属到私教团队的数据
+    - name: cost_revenue_team_coach_unlabeled
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [accounting_code,money,team_id,team_type,cost_team_id,cost_team_type]
+            rename:
+              team_id: coach_team_id
+        - run_py:
+            - |
+                df = df[(df['cost_team_type']==10) & (df['team_type'].isnull()) ]
+                df['coach_team_id'] = df['cost_team_id']
+                result = df
+
+        - fetch_cols: 
+            columns: [accounting_code,money,coach_team_id,team_type]
+
+
+    # 私教团队提报数据处理
+    - name: cost_revenue_team_coach
+      sync_result: true
+      cooks:
+        # 将组织架构内的成本和未打标签的数据合并起来
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [accounting_code,money,team_id,team_type]
+            rename:
+              team_id: coach_team_id
+        - df_select:
+            - 'team_type == 10'
+        - stash_push_df: []
+
+
+        - use_df:
+            key: cost_revenue_team_coach_unlabeled
+        - stash_push_df: []
+
+        - stash_concat_df: 
+            drop_stash: True
+
+        - run_py:
+            - |
+                df = to_df(df)
+                if df.index.size ==0:
+                    df.loc[0,u'accounting_code'] = u'123456'
+                    df[u'coach_team_id'] = u'occupad_id'
+                result = df
+
+
+        - df_groupby:
+            by: [accounting_code,coach_team_id]
+        - df_sum:
+            column: money
+        - df_reset_index: []
+
+        - df_pivot_table:
+            index: coach_team_id
+            columns: accounting_code
+            values: money
+        - df_reset_index: []
+        - pad_cols:
+            columns: ["6100201","6100203","3100102","3100202","31101","31103","31104","3120102","31202","31203","31204","31205","31403","31404","3150101","3150201"]
+            default_value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [coach_team_id,coach_team_name,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [coach_team_id,coach_team_name,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+
+        # - df_select_notna:
+        #     column: coach_team_id
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [coach_team_id]
+            how: right
+            drop_stash: true
+
+        - df_fillna:
+            columns: ["6100201","6100203","3100102","3100202","31101","31103","31104","3120102","31202","31203","31204","31205","31403","31404","3150101","3150201"]
+            value: 0
+
+
+        # 二级指标计算
+        # 工资成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: wage_cost
+            src_columns: ['6100201','6100203']
+
+        # 人员费用
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: personnel_cost
+            src_columns: ['3100102','3100202']
+
+        # 房屋费用
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: rental_housing_cost
+            src_columns: ['31101','31103','31104']
+
+        # 管理费用
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: governance_cost
+            src_columns: ['3120102','31202','31203','31204','31205']
+
+        # 招聘成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: recruitment_cost
+            src_columns: ['31403','31404']
+
+        # 意外成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: unexpected_cost
+            src_columns: ['3150101','3150201']
+
+        # """一级指标计算"""
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: coach_own_cost
+            src_columns: [wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost]
+
+    # 私教聚合到私教
+    - name: cost_revenue_coach_agg_coach
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_coach
+            columns: [coach_team_id,'6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [coach_team_id]
+        - df_sum:
+            column: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: coach_team_id
+              team_name: coach_team_name
+        - df_select:
+            - 'team_type == 10'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [coach_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [coach_team_id,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [coach_team_id,theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [coach_team_id]
+            how: right
+            drop_stash: true
+
+    # 私教聚合到大区
+    - name: cost_revenue_coach_agg_theater
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_coach
+            columns: [theater_team_id,'6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [theater_team_id]
+        - df_sum:
+            column: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: theater_team_id
+              team_name: theater_team_name
+        - df_select:
+            - 'team_type == 20'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [theater_team_id,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [theater_team_id,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: right
+            drop_stash: true
+
+    # 私教聚合到分部
+    - name: cost_revenue_coach_agg_division
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_coach
+            columns: [division_team_id,'6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [division_team_id]
+        - df_sum:
+            column: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: division_team_id
+              team_name: division_team_name
+        - df_select:
+            - 'team_type == 30'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [division_team_id,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [division_team_id,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: right
+            drop_stash: true
+
+    # 私教聚合到事业部
+    - name: cost_revenue_coach_agg_business
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_coach
+            columns: [business_team_id,'6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [business_team_id]
+        - df_sum:
+            column: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: business_team_id
+              team_name: business_team_name
+        - df_select:
+            - 'team_type == 40'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [business_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,coach_own_cost]
+            value: 0.0
+
+
+
+
+
+    # 处理未打标签但成本归属到大区团队的数据
+    - name: cost_revenue_team_theater_unlabeled
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [accounting_code,money,team_id,team_type,cost_team_id,cost_team_type]
+            rename:
+              team_id: theater_team_id
+        - run_py:
+            - |
+                df = df[(df['cost_team_type']==20) & (df['team_type'].isnull())]
+                df['theater_team_id'] = df['cost_team_id']
+                result = df
+
+        - fetch_cols: 
+            columns: [accounting_code,money,theater_team_id,team_type]
+
+
+
+    # 大区团队提报数据处理
+    - name: cost_revenue_team_theater
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [accounting_code,money,team_id,team_type]
+            rename:
+              team_id: theater_team_id
+        - df_select:
+            - 'team_type == 20'
+        - stash_push_df: []
+
+
+        - use_df:
+            key: cost_revenue_team_theater_unlabeled
+        - stash_push_df: []
+
+        - stash_concat_df: 
+            drop_stash: True
+        - run_py:
+            - |
+                df = to_df(df)
+                if df.index.size ==0:
+                    df.loc[0,u'accounting_code'] = u'123456'
+                    df[u'theater_team_id'] = u'occupad_id'
+                result = df
+
+
+
+        - df_groupby:
+            by: [accounting_code,theater_team_id]
+        - df_sum:
+            column: money
+        - df_reset_index: []
+
+        - df_pivot_table:
+            index: theater_team_id
+            columns: accounting_code
+            values: money
+        - df_reset_index: []
+        - pad_cols:
+            columns: ["6100201","6100203","3100102","3100202","31101","31103","31104","3120102","31202","31203","31204","31205","31403","31404","3150101","3150201"]
+            default_value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [theater_team_id,theater_team_name,division_team_id,division_team_name,business_team_id,business_team_name]
+
+        # - df_select_notna:
+        #     column: theater_team_id
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: right
+            drop_stash: true
+
+        - df_fillna:
+            columns: ["6100201","6100203","3100102","3100202","31101","31103","31104","3120102","31202","31203","31204","31205","31403","31404","3150101","3150201"]
+            value: 0
+
+        # 二级指标计算
+        # 工资成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: wage_cost
+            src_columns: ['6100201','6100203']
+
+        # 人员费用
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: personnel_cost
+            src_columns: ['3100102','3100202']
+
+        # 房屋费用
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: rental_housing_cost
+            src_columns: ['31101','31103','31104']
+
+        # 管理费用
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: governance_cost
+            src_columns: ['3120102','31202','31203','31204','31205']
+
+        # 招聘成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: recruitment_cost
+            src_columns: ['31403','31404']
+
+        # 意外成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: unexpected_cost
+            src_columns: ['3150101','3150201']
+
+        # """一级指标计算"""
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: theater_own_cost
+            src_columns: [wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost]
+
+    # 大区聚合到大区
+    - name: cost_revenue_theater_agg_theater
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_theater
+            columns: [theater_team_id,'6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,theater_own_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [theater_team_id]
+        - df_sum:
+            column: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,theater_own_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: theater_team_id
+              team_name: theater_team_name
+        - df_select:
+            - 'team_type == 20'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,theater_own_cost]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [theater_team_id,division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [theater_team_id,division_team_id,division_team_name,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [theater_team_id]
+            how: right
+            drop_stash: true
+
+    # 大区聚合到分部
+    - name: cost_revenue_theater_agg_division
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_theater
+            columns: [division_team_id,'6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,theater_own_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [division_team_id]
+        - df_sum:
+            column: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,theater_own_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: division_team_id
+              team_name: division_team_name
+        - df_select:
+            - 'team_type == 30'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,theater_own_cost]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [division_team_id,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [division_team_id,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: right
+            drop_stash: true
+
+    # 大区聚合到事业部
+    - name: cost_revenue_theater_agg_business
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_theater
+            columns: [business_team_id,'6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,theater_own_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [business_team_id]
+        - df_sum:
+            column: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,theater_own_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: business_team_id
+              team_name: business_team_name
+        - df_select:
+            - 'team_type == 40'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [business_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,theater_own_cost]
+            value: 0.0
+
+
+
+
+
+
+    # 处理未打标签但成本归属到分部团队的数据
+    - name: cost_revenue_team_division_unlabeled
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [accounting_code,money,team_id,team_type,cost_team_id,cost_team_type]
+            rename:
+              team_id: division_team_id
+        - run_py:
+            - |
+                df = df[(df['cost_team_type']==30) & (df['team_type'].isnull()) ]
+                df['division_team_id'] = df['cost_team_id']
+                result = df
+
+        - fetch_cols: 
+            columns: [accounting_code,money,division_team_id,team_type]
+
+
+    # 分部团队提报数据处理
+    - name: cost_revenue_team_division
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [accounting_code,money,team_id,team_type]
+            rename:
+              team_id: division_team_id
+        - df_select:
+            - 'team_type == 30'
+        - stash_push_df: []
+
+
+        - use_df:
+            key: cost_revenue_team_division_unlabeled
+        - stash_push_df: []
+
+        - stash_concat_df: 
+            drop_stash: True
+
+        - run_py:
+            - |
+                df = to_df(df)
+                if df.index.size ==0:
+                    df.loc[0,u'accounting_code'] = u'123456'
+                    df[u'division_team_id'] = u'occupad_id'
+                result = df
+
+
+        - df_groupby:
+            by: [accounting_code,division_team_id]
+        - df_sum:
+            column: money
+        - df_reset_index: []
+
+        - df_pivot_table:
+            index: division_team_id
+            columns: accounting_code
+            values: money
+        - df_reset_index: []
+        - pad_cols:
+            columns: ["6100201","6100203","3100102","3100202","31101","31103","31104","3120102","31202","31203","31204","31205","3160202","31403","31404","3150101","3150201"]
+            default_value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [division_team_id,division_team_name,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [division_team_id,division_team_name,business_team_id,business_team_name]
+
+        # - df_select_notna:
+        #     column: division_team_id
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: right
+            drop_stash: true
+
+        - df_fillna:
+            columns: ["6100201","6100203","3100102","3100202","31101","31103","31104","3120102","31202","31203","31204","31205","3160202","31403","31404","3150101","3150201"]
+            value: 0
+
+
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: wage_cost
+            src_columns: ['6100201','6100203']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: personnel_cost
+            src_columns: ['3100102','3100202']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: rental_housing_cost
+            src_columns: ['31101','31103','31104']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: governance_cost
+            src_columns: ['3120102','31202','31203','31204','31205','3160202']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: recruitment_cost
+            src_columns: ['31403','31404']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: unexpected_cost
+            src_columns: ['3150201','3150101']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: division_own_cost
+            src_columns: [wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost]
+
+    # 分部聚合到分部
+    - name: cost_revenue_division_agg_division
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_division
+            columns: [division_team_id,'6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160202','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,division_own_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [division_team_id]
+        - df_sum:
+            column: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160202','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,division_own_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: division_team_id
+              team_name: division_team_name
+        - df_select:
+            - 'team_type == 30'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160202','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,division_own_cost]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [division_team_id,business_team_id,business_team_name]
+        - drop_duplicates:
+            - [division_team_id,business_team_id,business_team_name]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [division_team_id]
+            how: right
+            drop_stash: true
+
+    # 分部聚合到事业部
+    - name: cost_revenue_division_agg_business
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_division
+            columns: [business_team_id,'6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160202','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,division_own_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [business_team_id]
+        - df_sum:
+            column: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160202','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,division_own_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: business_team_id
+              team_name: business_team_name
+        - df_select:
+            - 'team_type == 40'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [business_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3160202','31403','31404','3150101','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,recruitment_cost,unexpected_cost,division_own_cost]
+            value: 0.0
+
+
+
+
+
+
+    # 处理未打标签但成本归属到分部团队的数据
+    - name: cost_revenue_team_business_unlabeled
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [accounting_code,money,team_id,team_type,cost_team_id,cost_team_type]
+            rename:
+              team_id: business_team_id
+        - run_py:
+            - |
+                df = df[(df['cost_team_type']==40) & (df['team_type'].isnull()) ]
+                df['business_team_id'] = df['cost_team_id']
+                result = df
+
+        - fetch_cols: 
+            columns: [accounting_code,money,business_team_id,team_type]
+
+
+    # 事业部团队提报数据处理
+    - name: cost_revenue_team_business
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [accounting_code,money,team_id,team_type]
+            rename:
+              team_id: business_team_id
+        - df_select:
+            - 'team_type == 40'
+        - stash_push_df: []
+
+
+        - use_df:
+            key: cost_revenue_team_business_unlabeled
+        - stash_push_df: []
+
+        - stash_concat_df: 
+            drop_stash: True
+
+        - run_py:
+            - |
+                df = to_df(df)
+                if df.index.size ==0:
+                    df.loc[0,u'accounting_code'] = u'123456'
+                    df[u'business_team_id'] = u'occupad_id'
+                result = df
+
+        - df_groupby:
+            by: [accounting_code,business_team_id]
+        - df_sum:
+            column: money
+        - df_reset_index: []
+
+        - df_pivot_table:
+            index: business_team_id
+            columns: accounting_code
+            values: money
+        - df_reset_index: []
+        - pad_cols:
+            columns: ["6100201","6100203","3100102","3100202","31101","31103","31104","3120102","31202","31203","31204","31205","3150201"]
+            default_value: 0.0
+        
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [business_team_id,business_team_name]
+        - drop_duplicates:
+            - [business_team_id,business_team_name]
+
+        # - df_select_notna:
+        #     column: business_team_id
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [business_team_id]
+            how: right
+            drop_stash: true
+        - df_fillna:
+            columns: ["6100201","6100203","3100102","3100202","31101","31103","31104","3120102","31202","31203","31204","31205","3150201"]
+            value: 0
+
+
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: wage_cost
+            src_columns: ['6100201','6100203']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: personnel_cost
+            src_columns: ['3100102','3100202']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: rental_housing_cost
+            src_columns: ['31101','31103','31104']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: governance_cost
+            src_columns: ['3120102','31202','31203','31204','31205']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: unexpected_cost
+            src_columns: ['3150201']
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: business_own_cost
+            src_columns: [wage_cost,personnel_cost,rental_housing_cost,governance_cost,unexpected_cost]
+
+    # 事业部聚合到事业部
+    - name: cost_revenue_business_agg_business
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_team_business
+            columns: [business_team_id,'6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,unexpected_cost,business_own_cost]
+        # 分组聚合操作
+        - df_groupby:
+            by: [business_team_id]
+        - df_sum:
+            column: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,unexpected_cost,business_own_cost]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,team_type,team_name]
+            rename:
+              team_id: business_team_id
+              team_name: business_team_name
+        - df_select:
+            - 'team_type == 40'
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [business_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: ['6100201','6100203','3100102','3100202','31101','31103','31104','3120102','31202','31203','31204','31205','3150201',wage_cost,personnel_cost,rental_housing_cost,governance_cost,unexpected_cost,business_own_cost]
+            value: 0.0
+
+
+
+    # 商务维度处理
+    # 筛选商圈数据
+    - name: cost_revenue_business_dc
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_cost_revenue_act
+            columns: [cost_center_type,accounting_code,dc_id,money]
+        - run_py:
+            - |
+                df = df[(df['cost_center_type']== 12) | ((df['cost_center_type']==11) & (df['dc_id'] != 'None'))]
+                df = to_df(df)
+                if df.index.size ==0:
+                    df.loc[0,u'accounting_code'] = u'123456'
+                    df[u'dc_id'] = u'occupad_id'
+                result = df
+
+        - df_groupby:
+            by: [accounting_code,dc_id]
+        - df_sum:
+            column: money
+        - df_reset_index: []
+
+        - df_pivot_table:
+            index: dc_id
+            columns: accounting_code
+            values: money
+        - df_reset_index: []
+        - pad_cols:
+            columns: ["51001","41001","41011","41012","41002","41013","41014","41003","41005","41006","41015","41016","41004","41007","41008","41009","41010","41018","41017","41019","41102","41103","6100101","6100102","3100101","3100401","3100201","3120101"]
+            default_value: 0.0
+
+        - stash_push_df: []
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id,dc_name,city_code,city_name,supplier_id,supplier_name,platform_code,label_name,vendor_dc_id]
+            rename:
+              label_name: label
+              vendor_dc_id: 站点ID
+        - run_py:
+            - |
+                df[u'label_name'] = df[u'label'].apply(lambda x: x if x in [u'菜大全',u'盒马-人力',u'智能柜',u'跑腿',u'奈雪',u'星巴克',u'喜茶',u'淘鲜达',u'陶陶居',u'瑞幸咖啡',u'买菜',u'肯德基',u'京东到家',u'盒马',u'高端运力',u'必胜客',u'智能柜',u'昔客堡',u'平台'] else u"无标签")
+                df[u'dc_label'] = df[u'label_name'].apply(lambda x: u"外卖" if x == u'平台' else u'非外卖')
+                result = df[[u'dc_id',u'dc_name',u'city_code',u'city_name',u'supplier_id',u'supplier_name',u'platform_code',u'label_name',u'dc_label',u'站点ID']]
+        - drop_duplicates:
+            - [dc_id,dc_name,city_code,city_name,supplier_id,supplier_name,platform_code,label_name,dc_label,站点ID]
+
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            drop_stash: true
+        - add_cols:
+            - assets_dc_num: 1
+
+        - df_fillna:
+            columns: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101']
+            value: 0.0
+
+          # 二级指标计算
+          # 结算单量
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: settlement_order_quantity_second
+            src_columns: ['51001']
+        # 平台基础收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: platform_basic_income
+            src_columns: ['41001','41011','41012']
+        # 平台KPI收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: platform_KPI_income
+            src_columns: ['41002','41013','41014']
+        # 平台政策收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: platform_policy_income
+            src_columns: ['41003','41005','41006','41015','41016']
+        # 平台运营罚款收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: platform_fine_income
+            src_columns: ['41004','41007','41008','41009','41010','41018']
+        # 强分摊收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: strong_allocation_income
+            src_columns: ['41017','41019']
+        # 非常规收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: unconventional_income
+            src_columns: ['41102','41103']
+        # 骑士工资
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: knight_wages
+            src_columns: ['6100101','6100102']
+        # 骑士保障
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: knight_safeguard
+            src_columns: ['3100101','3100401','3100201']
+        # 骑士福利
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: knight_welfare
+            src_columns: ['3120101']
+
+        # 一级指标计算
+        # 结算单量
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: settlement_order_quantity_first
+            src_columns: [settlement_order_quantity_second]
+        # 主营业务收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: main_business_income
+            src_columns: [platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income]
+        # 营业外收入
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: outside_business_income
+            src_columns: [unconventional_income]
+        # 资产成本
+        - df_sum_with_columns:
+            init_value: 0.00
+            dest_column: assets_income
+            src_columns: [knight_wages,knight_safeguard,knight_welfare]
+
+        # '''此处表示为减法运算'''
+        # 统计指标计算
+        # 骑士利润（扣强分摊）
+        - df_eval:
+            exp_str: 'asset_gross_profit_deduction_strong_allocation = main_business_income - strong_allocation_income - assets_income'
+
+        # 骑士利润
+        - df_eval:
+            exp_str: 'asset_gross_profit = main_business_income - assets_income'
+
+
+        - stash_push_df: []
+
+        - use_df:
+            key: cost_revenue_team_knight_num
+            columns: ['dc_id','riders_with_orders']
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+    # 商圈聚合到商圈
+    - name: cost_revenue_business_dc_agg_dc
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_business_dc
+
+
+
+    # 商圈聚合到城市
+    - name: cost_revenue_business_dc_agg_city
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_business_dc
+            columns: [city_code,city_name,supplier_id,supplier_name,platform_code,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        # 分组聚合操作
+        - df_groupby:
+            by: [city_code,city_name,supplier_id,supplier_name,platform_code]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+
+
+    # 商圈聚合到城市(分商圈类型)
+    - name: cost_revenue_business_dc_agg_city_label
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_business_dc
+            columns: [city_code,city_name,supplier_id,supplier_name,platform_code,label_name,dc_label,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            rename:
+              dc_label: parent_label
+
+        # 分组聚合操作
+        - df_groupby:
+            by: [city_code,city_name,supplier_id,supplier_name,platform_code,label_name,parent_label]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+
+        # 骑士利润率（扣强分摊）、骑士利润率(标签维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+
+        - stash_push_df: []
+
+        - df_groupby:
+            by: [city_code,city_name,supplier_id,supplier_name,platform_code,parent_label]
+
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num,gross_profit_margin(deduction_strong_allocation),gross_profit_margin]
+
+        - df_reset_index: []
+        # 骑士利润率（扣强分摊）、骑士利润率(外卖、非外卖维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - df_rename_columns:
+            - parent_label: label_name
+
+        - add_cols:
+            - parent_label: ''
+
+
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+
+
+
+
+
+    # 商圈聚合到主体
+    - name: cost_revenue_business_dc_agg_supplier
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_business_dc
+            columns: [supplier_id,supplier_name,platform_code,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        # 分组聚合操作
+        - df_groupby:
+            by: [supplier_id,supplier_name,platform_code]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+
+    # 商圈聚合到主体(分商圈类型)
+    - name: cost_revenue_business_dc_agg_supplier_label
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_business_dc
+            columns: [supplier_id,supplier_name,platform_code,label_name,dc_label,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            rename:
+              dc_label: parent_label
+
+        # 分组聚合操作
+        - df_groupby:
+            by: [supplier_id,supplier_name,platform_code,label_name,parent_label]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+
+
+        - df_reset_index: []
+        # 骑士利润率（扣强分摊）、骑士利润率(标签维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - stash_push_df: []
+
+        - df_groupby:
+            by: [supplier_id,supplier_name,platform_code,parent_label]
+
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num,gross_profit_margin(deduction_strong_allocation),gross_profit_margin]
+
+        - df_reset_index: []
+        # 骑士利润率（扣强分摊）、骑士利润率(外卖、非外卖维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - df_rename_columns:
+            - parent_label: label_name
+
+        - add_cols:
+            - parent_label: ''
+
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+
+
+    # 商圈聚合到平台
+    - name: cost_revenue_business_dc_agg_platform
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_business_dc
+            columns: [platform_code,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        # 分组聚合操作
+        - df_groupby:
+            by: [platform_code]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+
+    # 商圈聚合到平台(分商圈类型)
+    - name: cost_revenue_business_dc_agg_platform_label
+      sync_result: true
+      cooks:
+        - use_df:
+            key: cost_revenue_business_dc
+            columns: [platform_code,label_name,dc_label,'51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+            rename:
+              dc_label: parent_label
+
+        # 分组聚合操作
+        - df_groupby:
+            by: [platform_code,label_name,parent_label]
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num]
+        - df_reset_index: []
+
+        # 骑士利润率（扣强分摊）、骑士利润率(标签维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - stash_push_df: []
+
+        - df_groupby:
+            by: [platform_code,parent_label]
+
+        - df_sum:
+            column: ['51001','41001','41011','41012','41002','41013','41014','41003','41005','41006','41015','41016','41004','41007','41008','41009','41010','41018','41017','41019','41102','41103','6100101','6100102','3100101','3100401','3100201','3120101',settlement_order_quantity_second,platform_basic_income,platform_KPI_income,platform_policy_income,platform_fine_income,strong_allocation_income,unconventional_income,knight_wages,knight_safeguard,settlement_order_quantity_first,main_business_income,outside_business_income,assets_income,asset_gross_profit_deduction_strong_allocation,asset_gross_profit,knight_welfare,riders_with_orders,assets_dc_num,gross_profit_margin(deduction_strong_allocation),gross_profit_margin]
+
+        - df_reset_index: []
+        # 骑士利润率（扣强分摊）、骑士利润率(外卖、非外卖维度)
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'asset_gross_profit_deduction_strong_allocation']/(df[u'main_business_income'] - df[u'strong_allocation_income'])
+                df[u'gross_profit_margin'] = df[u'asset_gross_profit']/df[u'main_business_income']
+                df[u'gross_profit_margin'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                df[u'gross_profit_margin(deduction_strong_allocation)'] = df[u'gross_profit_margin'].apply(lambda x: 0 if (np.isnan(x) == True) | (np.isinf(x) == True) else x )
+                result = df
+
+        - df_rename_columns:
+            - parent_label: label_name
+
+        - add_cols:
+            - parent_label: ''
+
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+
