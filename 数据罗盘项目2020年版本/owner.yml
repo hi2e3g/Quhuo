@@ -1,0 +1,720 @@
+compass_knight_form_snap_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+    # 业主新财报数据
+    - cost_revenue_owner_agg_owner
+    # 商圈数据
+    - compass_dc_label_chain
+    # 团队数据
+    - std_qplus_team_map
+    # 本月总天数和当前天数
+    - compass_current_total_days
+    # 团队数据
+    - std_qplus_team
+    # 商圈表
+    - std_qplus_dc
+
+  play:
+    # 团队关系表+骑手人数
+    - name: team_knight_num_base
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_team_map
+        - stash_push_df: []
+
+
+        - use_df:
+            key: std_qplus_dc
+            columns: [vendor_dc_id,dc_id,knight_qty]
+            rename:
+              knight_qty: 骑手人数_full
+              vendor_dc_id: 站点ID
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+
+    # 计算团队数量及骑手数
+    - name: compass_owner_team_knight_num
+      sync_result: true
+      cooks:
+        - use_df:
+            key: team_knight_num_base
+            columns: [骑手人数_full,dc_id,owner_team_id,coach_team_id,theater_team_id,division_team_id,business_team_id,business_team_name]
+        - df_select:
+            - '(dc_id != @p1) & (business_team_name in @p2)'
+            - p1: nan
+              p2:
+                - 事业二部
+                - 事业一部
+        - run_py:
+            - |
+              df = to_df(df)
+              df_dc = df.groupby(['owner_team_id','coach_team_id','theater_team_id','division_team_id','business_team_id']).agg({'dc_id':'count',u'骑手人数_full':'sum'}).reset_index().rename(columns={'dc_id':u'商圈数量_full'})
+              result = df_dc
+
+
+    # 处理美团收入形成dc基础表
+    - name: compass_owner_label_cost_financial
+      sync_result: true
+      cooks:
+        # 获取业主新财报数据
+        - use_df:
+            key: cost_revenue_owner_agg_owner
+            columns: [business_team_id, owner_own_cost2, owner_team_id,wage_cost,owner_own_cost1, personnel_cost, rental_housing_cost, governance_cost, equipment_cost, recruitment_cost, unexpected_cost]
+            rename:
+                owner_own_cost2: 不稳定成本
+                wage_cost: 本月工资成本
+                # owner_own_cost1: 直接成本
+                personnel_cost: 保险费用
+                rental_housing_cost: 房屋费用
+                governance_cost: 办公管理费
+                equipment_cost: 装备成本
+                recruitment_cost: 招聘成本
+                unexpected_cost: 意外成本
+        - df_select:
+            - 'business_team_id in @p1'
+            - p1: ['5e818b38887d1f61ebb4e1dd', '5e818b39887d1f61ebb4e595']
+        - stash_push_df: []
+        - fetch_dataset:
+            dataset_type_code: cost_revenue_owner_agg_owner
+            dataset_cate: std
+            columns: [owner_team_id, wage_cost]
+            month_value: prev_month
+            ignore_null_error: true
+            empty_df_record:
+                owner_team_id: '-'
+                wage_cost: 0
+            rename:
+                wage_cost: 上月工资成本
+        - stash_push_df: []
+        - stash_join_df:
+            on: [owner_team_id]
+            how: right
+            # fillna: 0
+            drop_stash: true
+        - df_fillna:
+            columns: [上月工资成本]
+            value: 0
+
+        - run_py:
+            - |
+                df = to_df(df)
+                if df[u'本月工资成本'].sum() == 0:
+                    df[u'工资成本'] = df[u'上月工资成本']
+                else:
+                    df[u'工资成本'] = df[u'本月工资成本']
+                result = to_dd(df)
+
+        - fetch_cols:
+            columns: [owner_team_id,不稳定成本,保险费用,房屋费用,装备成本,办公管理费,意外成本,工资成本,招聘成本]
+        - set_meta_month_column:
+            - month
+
+        - stash_push_df: []
+        - use_df:
+            key: compass_current_total_days
+        - stash_push_df: []
+        - stash_join_df:
+            on: [month]
+            how: right
+            drop_stash: true
+        - fetch_cols:
+            columns: [owner_team_id,不稳定成本,保险费用,房屋费用,装备成本,办公管理费,意外成本,工资成本,招聘成本,当月总天数,当前天数]
+        - df_eval:
+            - |
+                [工资成本] = [工资成本]/[当月总天数]*[当前天数]
+                [直接成本] = [工资成本]+[保险费用]+[房屋费用]+[办公管理费]
+                [不稳定成本] = [不稳定成本]/100
+                [直接成本] = [直接成本]/100
+                [工资成本] = [工资成本]/100
+                [保险费用] = [保险费用]/100
+                [房屋费用] = [房屋费用]/100
+                [办公管理费] = [办公管理费]/100
+                [装备成本] = [装备成本]/100
+                [招聘成本] = [招聘成本]/100
+                [意外成本] = [意外成本]/100
+
+#        - push_dataset:
+#            key: compass_owner_label_cost_financial
+
+
+    - name: compass_owner_label_base_front
+      sync_result: true
+      cooks:
+        # 获取业主新财报数据
+        - use_df:
+            key: compass_owner_label_cost_financial
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [owner_team_id,有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,十二生肖得分,收入,骑手人数,商圈总成本,日均单量,荣誉比较得分,生肖比较得分,荣誉骑手数,有单骑手数,营业外收入,主营业务收入,invalid_label]
+
+        - df_select:
+            - 'owner_team_id != @p1 & invalid_label != 1'
+            - p1: nan
+        - df_groupby:
+            by: [owner_team_id]
+        - df_sum:
+            column: [日均单量,有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,十二生肖得分,收入,骑手人数,商圈总成本,荣誉比较得分,生肖比较得分,荣誉骑手数,有单骑手数,营业外收入,主营业务收入]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: owner_team_id
+            how: left
+            drop_stash: true
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [owner_team_id, non_rank_dc, invalid_label]
+
+        - df_select:
+            - 'owner_team_id != @p1 & non_rank_dc == 0  & invalid_label != 1'
+            - p1: nan
+        - add_cols:
+            - 商圈数量: 1
+        - df_groupby:
+            by: [owner_team_id]
+        - df_sum:
+            column: [商圈数量]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            drop_stash: true
+        # TODO： 存在商圈数量为0的情况，注意商圈数量做分母使用
+        - df_fillna:
+            columns: [商圈数量]
+            value: 0.0
+
+
+        # 计算二级指标
+        - df_eval:
+            - |
+                [业主自身成本] = [直接成本]+[不稳定成本]
+                [单均收入] = [主营业务收入]/[完成单量]
+                [直接成本单均值] = [直接成本]/[完成单量]
+                [不稳定单均值] = [不稳定成本]/[完成单量]
+                [单均直接成本收入比] = [直接成本单均值]/[单均收入]
+                [单均不稳定成本收入比] = [不稳定单均值]/[单均收入]
+                [业主总成本] = [直接成本] + [不稳定成本] + [商圈总成本]
+                [业主利润] = [主营业务收入] - [业主总成本]
+                [业主利润率] = [业主利润] / [主营业务收入]
+                [业主人均有单天数] = [有单天数] / [骑手人数]
+                [业主人均完成单量] = [完成单量] / [骑手人数]
+                [业主人均效率] = [效率] / [骑手人数]
+                [合计成本单均值] = [业主总成本]/[完成单量]
+                [单均合计成本收入比] = [合计成本单均值] / [单均收入]
+
+        # 部分指标排序
+        - df_rank:
+            rank_cols: [业主总成本, 业主利润, 收入, 主营业务收入]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+        - df_rank:
+            rank_cols: [业主总成本, 业主利润, 收入, 主营业务收入]
+            ascending: False
+
+
+        - df_rank:
+            rank_cols: [业主利润率]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+            exclude_na: False
+            na_option: bottom
+
+        - df_rank:
+            rank_cols: [业主利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+
+
+        - df_rank:
+            rank_cols: [单均直接成本收入比, 单均不稳定成本收入比, 单均合计成本收入比]
+            ascending: True
+            pct: True
+            rank_suffix: '_RANK_PCT'
+            exclude_na: False
+            na_option: bottom
+
+        - df_rank:
+            rank_cols: [单均直接成本收入比, 单均不稳定成本收入比, 单均合计成本收入比]
+            ascending: True
+            exclude_na: False
+            na_option: bottom
+
+        - df_rank:
+            rank_cols: [工资成本, 保险费用, 房屋费用,办公管理费,业主自身成本,招聘成本,不稳定成本,直接成本,装备成本,意外成本]
+            ascending: True
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+        - df_rank:
+            rank_cols: [工资成本, 保险费用, 房屋费用,办公管理费,业主自身成本,招聘成本,不稳定成本,直接成本,装备成本,意外成本]
+            ascending: True
+
+            
+        # 业主荣耀标签
+        - df_set_column_val_if:
+            column: 精打细算三星
+            condition: '[单均直接成本收入比_RANK_PCT]<=@t1'
+            params:
+                t1: 0.1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 精打细算二星
+            condition: '@t1<[单均直接成本收入比_RANK_PCT]<=@t2'
+            params:
+                t1: 0.1
+                t2: 0.2
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 精打细算一星
+            condition: '@t1<[单均直接成本收入比_RANK_PCT]<=@t2'
+            params:
+                t1: 0.2
+                t2: 0.3
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 稳中求胜三星
+            condition: '[单均不稳定成本收入比_RANK_PCT]<=@t1'
+            params:
+                t1: 0.1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 稳中求胜二星
+            condition: '@t1<[单均不稳定成本收入比_RANK_PCT]<=@t2'
+            params:
+                t1: 0.1
+                t2: 0.2
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 稳中求胜一星
+            condition: '@t1<[单均不稳定成本收入比_RANK_PCT]<=@t2'
+            params:
+                t1: 0.2
+                t2: 0.3
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 淘金达人三星
+            condition: '[单均合计成本收入比_RANK_PCT]<=@t1'
+            params:
+                t1: 0.1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 淘金达人二星
+            condition: '@t1<[单均合计成本收入比_RANK_PCT]<=@t2'
+            params:
+                t1: 0.1
+                t2: 0.2
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 淘金达人一星
+            condition: '@t1<[单均合计成本收入比_RANK_PCT]<=@t2'
+            params:
+                t1: 0.2
+                t2: 0.3
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 精算师
+            condition: '[精打细算三星]+[精打细算二星]+[精打细算一星]==@t1 and [稳中求胜三星]+[稳中求胜二星]+[稳中求胜一星]==@t2 and [淘金达人三星]+[淘金达人二星]+[淘金达人一星]==@t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 1
+            val: 1
+            else_val: 0
+
+
+    # 二级业主荣耀标签
+    - name: compass_owner_label_base
+      sync_result: true
+      cooks:
+
+        - fetch_dataset:
+            dataset_type_code: compass_owner_label_base_front
+            dataset_cate: std
+            columns: [owner_team_id, 淘金达人三星,淘金达人二星,淘金达人一星]
+            month_value: prev_month
+            ignore_null_error: true
+            empty_df_record:
+                owner_team_id: '-'
+                上月淘金达人三星: 10
+                上月淘金达人二星: 10
+                上月淘金达人一星: 10
+            rename:
+                淘金达人三星: 上月淘金达人三星
+                淘金达人二星: 上月淘金达人二星
+                淘金达人一星: 上月淘金达人一星
+
+        - stash_push_df: []
+        - use_df:
+            key: compass_owner_label_base_front
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [owner_team_id]
+            how: left
+            drop_stash: true
+        - dask_apply_dtypes:
+            dtypes:
+              商圈数量: float
+
+        - df_fillna:
+            columns: [上月淘金达人三星,上月淘金达人二星,上月淘金达人一星]
+            value: 10
+
+
+        - df_set_column_val_if:
+            column: 自我提升
+            condition: '([淘金达人二星] == @t1 & ([上月淘金达人三星] == @t2 | [上月淘金达人一星] == @t1)) | ([淘金达人三星] == @t1 & ([上月淘金达人三星] == @t2 | [上月淘金达人一星] == @t1 | [上月淘金达人二星] == @t1))'
+            params:
+                t1: 1
+                t2: 10
+            val: 1
+            else_val: 0
+
+        - df_eval:
+            - |
+                [业主荣誉比较得分] = [荣誉比较得分]/[商圈数量]
+                [业主生肖比较得分] = [生肖比较得分]/[商圈数量]
+        - df_rank:
+            rank_cols: [业主荣誉比较得分]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+            exclude_na: False
+            na_option: bottom
+
+        - df_rank:
+            rank_cols: [业主生肖比较得分]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+            exclude_na: False
+            na_option: bottom
+
+
+
+        - df_set_column_val_if:
+            column: 精英荟萃
+            condition: '[业主荣誉比较得分_RANK_PCT]<@t1'
+            params:
+                t1: 0.25
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 财大气粗
+            condition: '[业主生肖比较得分_RANK_PCT]<@t1'
+            params:
+                t1: 0.25
+            val: 1
+            else_val: 0
+
+        # 计算荣誉积分和业主综合积分
+        - df_eval:
+            - |
+                [荣誉积分]= [精打细算三星]*3 + [精打细算二星]*2 + [精打细算一星]*1 + [稳中求胜三星]*3 + [稳中求胜二星]*2 + [稳中求胜一星]*1 + [淘金达人三星]*3 + [淘金达人二星]*2 + [淘金达人一星]*1 + [精算师]*9 
+                [业主综合积分]= [荣誉积分] + [精英荟萃]*2 + [财大气粗]*3 + [自我提升]*1
+
+        # 计算业主综合排名
+        - df_rank:
+            rank_cols: [业主综合积分]
+            ascending: False
+        - df_rank:
+            rank_cols: [业主综合积分]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_eval:
+            exp_str: '[业主综合积分_DEFEAT_PCT] = 1 - [业主综合积分_RANK_PCT]'
+
+        - df_set_column_val_if:
+            column: 王者之师
+            condition: '[业主综合积分_RANK_PCT]<=@t1'
+            params:
+                t1: 0.25
+            val: 1
+            else_val: 0
+
+        # 荣耀骑手占比 及 商圈生肖占比x
+        - df_eval:
+            - |
+                [鼠占比] = [鼠]/[商圈数量]
+                [蛇占比] = [蛇]/[商圈数量]
+                [鸡占比] = [鸡]/[商圈数量]
+                [兔占比] = [兔]/[商圈数量]
+                [狗占比] = [狗]/[商圈数量]
+                [羊占比] = [羊]/[商圈数量]
+                [猴占比] = [猴]/[商圈数量]
+                [猪占比] = [猪]/[商圈数量]
+                [虎占比] = [虎]/[商圈数量]
+                [牛占比] = [牛]/[商圈数量]
+                [马占比] = [马]/[商圈数量]
+                [龙占比] = [龙]/[商圈数量]
+                [奋进骑手占比] = [奋进骑手]/[骑手人数]
+                [高效骑手占比] = [高效骑手]/[骑手人数]
+                [服务骑手占比] = [服务骑手]/[骑手人数]
+                [完美骑手占比] = [完美骑手]/[骑手人数]
+        - df_fillna:
+            columns: [鼠占比,蛇占比,鸡占比,兔占比,狗占比,羊占比,猴占比,猪占比,虎占比,牛占比,马占比,龙占比]
+            value: 0.0
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [owner_team_id,owner_team_name,coach_team_name,coach_team_id,theater_team_name,theater_team_id,business_team_name,business_team_id,division_team_name,division_team_id]
+        - drop_duplicates:
+            - [owner_team_id,owner_team_name,coach_team_name,coach_team_id,theater_team_name,theater_team_id,business_team_name,business_team_id,division_team_name,division_team_id]
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            drop_stash: true
+
+
+    # TODO: 后期会通过商圈标签过滤，被优化掉
+    - name: compass_owner_label_inf
+      sync_result: true
+      cooks:
+
+        - use_df:
+            key: compass_owner_label_base
+        - df_not_nan_inf:
+            column: 业主人均完成单量
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_owner_label_base
+        - df_is_nan_inf:
+            column: 业主人均完成单量
+        - df_eval:
+            - |
+                [业主人均有单天数] = 0
+                [业主人均效率] = 0
+                [奋进骑手占比] = 0
+                [高效骑手占比] = 0
+                [服务骑手占比] = 0
+                [完美骑手占比] = 0
+                [业主人均完成单量] = 0
+                [高效骑手] = 0
+                [奋进骑手] = 0
+                [服务骑手] = 0
+                [完美骑手] = 0
+                [荣誉骑手数] = 0
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+    - name: compass_owner_label_invalid_owner
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_owner_label_cost_financial
+            columns: [owner_team_id, 直接成本, 不稳定成本]
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_owner_label_inf
+            columns: [owner_team_id]
+        - add_cols:
+            - invalid_label: 0
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            drop_stash: true
+        - df_select:
+            - 'invalid_label != 0'
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,is_invalid,team_code]
+            rename:
+              team_id: owner_team_id
+        - stash_push_df: []
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [owner_team_id, 商圈总成本, 收入, 主营业务收入, 营业外收入, 完成单量,  invalid_label]
+
+        - df_select:
+            - 'invalid_label == 1'
+        - df_groupby:
+            by: [owner_team_id]
+        - df_sum:
+            column: [商圈总成本, 收入, 主营业务收入, 营业外收入, 完成单量]
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                if df.index.size == 0:
+                    df.loc[0,[u'owner_team_id']] = [u'occupied_code']
+                result = to_dd(df)
+        - stash_push_df: []
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            drop_stash: true
+
+        - df_fillna:
+            columns: [商圈总成本, 收入, 主营业务收入, 营业外收入, 完成单量]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [owner_team_id, owner_team_name, coach_team_id, coach_team_name, division_team_id]
+
+        - drop_duplicates:
+            - [owner_team_id, owner_team_name, coach_team_id, coach_team_name, division_team_id]
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            drop_stash: true
+
+        - df_eval:
+            - |
+                [自身成本] = [直接成本] + [不稳定成本]
+                [自身及其下级成本] = [自身成本] + [商圈总成本]
+
+
+    # 与上月的业主结果做差值
+    - name: compass_owner_label_chain
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: compass_owner_label_inf
+            dataset_cate: std
+            columns: [owner_team_id, 业主综合积分]
+            month_value: prev_month
+            ignore_null_error: true
+            empty_df_record:
+                owner_team_id: '-'
+                上月业主综合积分: 0
+            rename:
+                业主综合积分: 上月业主综合积分
+
+        - stash_push_df: []
+        - use_df:
+            key: compass_owner_label_inf
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [owner_team_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: [上月业主综合积分]
+            value: 0.0
+
+        - df_eval:
+            exp_str: '[业主比较得分] = [业主综合积分] - [上月业主综合积分]'
+
+        - stash_push_df: []
+
+        # 增加上级无效私教标签
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,is_invalid,team_type]
+            rename:
+              team_id: coach_team_id
+        - df_select:
+            - 'is_invalid & team_type==10'
+        - add_cols:
+            - invalid_label: 1
+        - fetch_cols:
+            - [coach_team_id, invalid_label]
+        - stash_push_df: []
+        - stash_join_df:
+            on: coach_team_id
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+        - use_df:
+            key: compass_owner_team_knight_num
+            columns: [owner_team_id, 骑手人数_full, 商圈数量_full]
+        - stash_push_df: []
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            drop_stash: true
+
+
+        - dask_apply_dtypes:
+            dtypes:
+              owner_team_id: unicode
+              owner_team_name: unicode
+              coach_team_name: unicode
+              business_team_name: unicode
+              division_team_name: unicode
+              coach_team_id: unicode
+              theater_team_id: unicode
+              theater_team_name: unicode
+              business_team_id: unicode
+              division_team_id: unicode
+        - set_meta_month_column:
+            - month
+
+
+    # 业主预警数据
+    - name: compass_owner_label_early_warning
+      sync_result: true
+      cooks:
+        # 获取业主数据
+        - use_df:
+            key: compass_owner_label_base
+            columns: [owner_team_id,owner_team_name,直接成本,不稳定成本,保险费用,工资成本,房屋费用,办公管理费,装备成本,招聘成本,意外成本,业主综合积分_RANK,单均直接成本收入比_RANK_PCT,单均不稳定成本收入比_RANK_PCT,单均直接成本收入比_RANK,单均不稳定成本收入比_RANK]
+        - df_select:
+            - '[单均直接成本收入比_RANK] > @p1 or [单均不稳定成本收入比_RANK] >@p1'
+            - p1: 0.7
+
+
+
+
+
+

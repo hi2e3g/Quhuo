@@ -1,0 +1,447 @@
+compass_knight_form_snap_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+    # 事业部新财报数据
+    - cost_revenue_business_agg_business
+    # 分部数据
+    - compass_division_label_chain
+    # 商圈数据
+    - compass_dc_label_chain
+    # 分部下团队骑手数
+    - compass_division_team_knight_num
+    # 本月总天数和当前天数
+    - compass_current_total_days
+
+
+  play:
+    - name: compass_business_team_knight_num
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_division_team_knight_num
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df_division = df.groupby(['business_team_id']).agg({'division_team_id':'count',u'商圈数量_full':'sum',u'骑手人数_full':'sum',u'业主数量_full':'sum',u'私教数量_full':'sum',u'大区数量_full':'sum'}).reset_index().rename(columns={'division_team_id':u'分部数量_full'})
+                result = df_division
+
+    # 处理事业部基础数据
+    - name: compass_business_label_base_front
+      sync_result: true
+      cooks:
+        # 事业部新财报
+        - use_df:
+            key: cost_revenue_business_agg_business
+            columns: [business_team_id,business_team_name, wage_cost, business_own_cost, personnel_cost,rental_housing_cost,governance_cost,unexpected_cost]
+            rename:
+                # business_own_cost: 事业部自身成本
+                wage_cost: 本月工资成本
+                personnel_cost: 保险费用
+                rental_housing_cost: 房屋费用
+                governance_cost: 办公管理费
+                unexpected_cost: 意外成本
+        - stash_push_df: []
+        - fetch_dataset:
+            dataset_type_code: cost_revenue_business_agg_business
+            dataset_cate: std
+            columns: [business_team_id, wage_cost]
+            month_value: prev_month
+            ignore_null_error: true
+            empty_df_record:
+                business_team_id: '-'
+                wage_cost: 0
+            rename:
+                wage_cost: 上月工资成本
+        - stash_push_df: []
+        - stash_join_df:
+            on: [business_team_id]
+            how: right
+            # fillna: 0
+            drop_stash: true
+        - df_fillna:
+            columns: [上月工资成本]
+            value: 0
+        - run_py:
+            - |
+                df = to_df(df)
+                if df[u'本月工资成本'].sum() == 0:
+                    df[u'工资成本'] = df[u'上月工资成本']
+                else:
+                    df[u'工资成本'] = df[u'本月工资成本']
+                result = to_dd(df)
+        - fetch_cols:
+            columns: [business_team_id,business_team_name,保险费用,房屋费用,办公管理费,意外成本,工资成本]
+        - set_meta_month_column:
+            - month
+
+        - stash_push_df: []
+        - use_df:
+            key: compass_current_total_days
+        - stash_push_df: []
+        - stash_join_df:
+            on: [month]
+            how: right
+            drop_stash: true
+        - fetch_cols:
+            columns: [business_team_id,business_team_name,保险费用,房屋费用,办公管理费,意外成本,工资成本,当月总天数,当前天数]
+        - df_eval:
+            - |
+                [工资成本] = [工资成本]/[当月总天数]*[当前天数]
+                [事业部自身成本] = [工资成本]+[保险费用]+[房屋费用]+[办公管理费]+[意外成本]
+                [事业部自身成本] = [事业部自身成本] / 100
+                [工资成本] = [工资成本]/100
+                [保险费用] = [保险费用]/100
+                [房屋费用] = [房屋费用]/100
+                [办公管理费] = [办公管理费]/100
+                [意外成本] = [意外成本]/100
+        - stash_push_df: []
+        - use_df:
+            key: compass_division_label_chain
+            columns: [business_team_id,有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,十二生肖得分,收入,  骑手人数, 业主数量, 私教数量, 大区数量, 精英荟萃, 财大气粗, 自我提升, 商圈数量, 分部总成本,营业外收入,主营业务收入,日均单量,分部荣誉比较得分,分部生肖比较得分,业主比较得分,私教比较得分,大区比较得分,分部比较得分,荣誉骑手数,有单骑手数]
+        - df_select:
+            - 'business_team_id != @p1'
+            - p1: nan
+
+        - add_cols:
+            - 分部数量: 1
+        - df_groupby:
+            by: [business_team_id]
+        - df_sum:
+            column: [有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,十二生肖得分,收入,骑手人数, 业主数量, 私教数量, 商圈数量, 大区数量, 分部数量, 精英荟萃, 财大气粗, 自我提升, 分部总成本,营业外收入,主营业务收入,分部荣誉比较得分,分部生肖比较得分,业主比较得分,私教比较得分,大区比较得分,分部比较得分,日均单量,荣誉骑手数,有单骑手数]
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: business_team_id
+            how: right
+            drop_stash: true
+
+        # 过滤掉非美团饿了么团队
+        - df_fillna:
+            columns: [主营业务收入]
+            value: 0
+
+        - df_select:
+            - '[主营业务收入] != @p1'
+            - p1: 0
+
+        - df_eval:
+            - |
+                [单均收入] = [主营业务收入]/[完成单量]
+                [事业部总成本] = [分部总成本] + [事业部自身成本]
+                [事业部利润] = [收入] - [事业部总成本]
+                [事业部利润率] = [事业部利润]/[收入]
+                [事业部人均有单天数] = [有单天数] / [骑手人数]
+                [事业部人均完成单量] = [完成单量] / [骑手人数]
+                [事业部人均效率] = [效率] / [骑手人数]
+
+        - df_rank:
+            rank_cols: [事业部自身成本,工资成本,保险费用,房屋费用,办公管理费,意外成本]
+            ascending: True
+
+        - df_rank:
+            rank_cols: [事业部自身成本,工资成本,保险费用,房屋费用,办公管理费,意外成本]
+            ascending: True
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+        - df_rank:
+            rank_cols: [事业部总成本]
+            ascending: True
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+        - df_rank:
+            rank_cols: [事业部总成本]
+            ascending: True
+
+        - df_rank:
+            rank_cols: [事业部利润, 收入, 主营业务收入, 事业部利润率]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+        - df_rank:
+            rank_cols: [事业部利润, 收入, 主营业务收入, 事业部利润率]
+            ascending: False
+
+        
+
+
+    - name: compass_business_label_base
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_business_label_base_front
+        - df_eval:
+            - |
+                [事业部成本单均值] = [事业部总成本]/[完成单量]
+                [事业部单均成本收入比] = [事业部成本单均值]/[单均收入]
+
+        - df_rank:
+            rank_cols: ['事业部单均成本收入比']
+            ascending: True
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        
+
+        - df_rank:
+            rank_cols: ['事业部单均成本收入比']
+            ascending: True
+
+
+        - df_set_column_val_if:
+            column: 淘金达人三星
+            condition: '[事业部单均成本收入比_RANK]<=@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 淘金达人二星
+            condition: '@t1<[事业部单均成本收入比_RANK]<=@t2'
+            params:
+                t1: 1
+                t2: 2
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 淘金达人一星
+            condition: '@t1<[事业部单均成本收入比_RANK]<=@t2'
+            params:
+                t1: 2
+                t2: 3
+            val: 1
+            else_val: 0
+
+        - stash_push_df: []
+
+
+        - fetch_dataset:
+            dataset_type_code: compass_business_label_base
+            dataset_cate: std
+            columns: [business_team_id, 淘金达人三星,淘金达人二星,淘金达人一星]
+            month_value: prev_month
+            ignore_null_error: true
+            empty_df_record:
+                business_team_id: '-'
+                上月淘金达人三星: 10
+                上月淘金达人二星: 10
+                上月淘金达人一星: 10
+            rename:
+                淘金达人三星: 上月淘金达人三星
+                淘金达人二星: 上月淘金达人二星
+                淘金达人一星: 上月淘金达人一星
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [business_team_id]
+            how: right
+            drop_stash: true
+
+        - df_fillna:
+            columns: [上月淘金达人三星,上月淘金达人二星,上月淘金达人一星]
+            value: 10
+
+
+        - df_set_column_val_if:
+            column: 自我提升
+            condition: '([淘金达人二星] == @t1 & ([上月淘金达人三星] == @t2 | [上月淘金达人一星] == @t1)) | ([淘金达人三星] == @t1 & ([上月淘金达人三星] == @t2 | [上月淘金达人一星] == @t1 | [上月淘金达人二星] == @t1))'
+            params:
+                t1: 1
+                t2: 10
+            val: 1
+            else_val: 0
+
+
+        # # 分部荣耀标签
+        - df_eval:
+            - |
+                [事业部荣誉比较得分] = [分部荣誉比较得分]/[分部数量]
+                [事业部生肖比较得分] = [分部生肖比较得分]/[分部数量]
+                [业主比较得分] = [业主比较得分]/[分部数量]
+                [私教比较得分] = [私教比较得分]/[分部数量]
+                [大区比较得分] = [大区比较得分]/[分部数量]
+                [分部比较得分] = [分部比较得分]/[分部数量]
+        - df_rank:
+            rank_cols: [事业部荣誉比较得分, 事业部生肖比较得分, 业主比较得分, 私教比较得分, 大区比较得分, 分部比较得分]
+            ascending: False
+
+        - df_rank:
+            rank_cols: [事业部荣誉比较得分, 事业部生肖比较得分, 业主比较得分, 私教比较得分, 大区比较得分, 分部比较得分]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+
+        - df_set_column_val_if:
+            column: 青铜
+            condition: '[事业部荣誉比较得分_RANK]<@t1'
+            params:
+              t1: 2
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 白银
+            condition: '[事业部生肖比较得分_RANK]<@t1'
+            params:
+              t1: 2
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 黄金
+            condition: '[业主比较得分_RANK]<@t1'
+            params:
+              t1: 2
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 铂金
+            condition: '[私教比较得分_RANK]<@t1'
+            params:
+              t1: 2
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 钻石
+            condition: '[大区比较得分_RANK]<@t1'
+            params:
+              t1: 2
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 王者
+            condition: '[分部比较得分_RANK]<@t1'
+            params:
+              t1: 2
+            val: 1
+            else_val: 0
+
+         # 计算荣誉积分和私教综合积分
+        - df_eval:
+            - |
+                [荣誉积分] = [淘金达人三星]*3 + [淘金达人二星]*2 + [淘金达人一星]*1
+                [事业部综合积分]= [荣誉积分] + [青铜]*2 + [白银]*7 + [黄金]*6 + [铂金]*5 + [钻石]*4 + [王者]*3
+
+        - df_rank:
+            rank_cols: [事业部综合积分]
+            ascending: False
+
+        - df_rank:
+            rank_cols: [事业部综合积分]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+        - df_eval:
+            exp_str: '[事业部综合积分_DEFEAT_PCT] = 1 - [事业部综合积分_RANK_PCT]'
+        - df_set_column_val_if:
+            column: 王者之师
+            condition: '[事业部综合积分_RANK]<@t1'
+            params:
+              t1: 2
+            val: 1
+            else_val: 0
+
+        # 荣耀骑手占比 及 商圈生肖占比x
+        - df_eval:
+            - |
+                [鼠占比] = [鼠]/[商圈数量]
+                [蛇占比] = [蛇]/[商圈数量]
+                [鸡占比] = [鸡]/[商圈数量]
+                [兔占比] = [兔]/[商圈数量]
+                [狗占比] = [狗]/[商圈数量]
+                [羊占比] = [羊]/[商圈数量]
+                [猴占比] = [猴]/[商圈数量]
+                [猪占比] = [猪]/[商圈数量]
+                [虎占比] = [虎]/[商圈数量]
+                [牛占比] = [牛]/[商圈数量]
+                [马占比] = [马]/[商圈数量]
+                [龙占比] = [龙]/[商圈数量]
+                [奋进骑手占比] = [奋进骑手]/[骑手人数]
+                [高效骑手占比] = [高效骑手]/[骑手人数]
+                [服务骑手占比] = [服务骑手]/[骑手人数]
+                [完美骑手占比] = [完美骑手]/[骑手人数]
+                
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_business_team_knight_num
+        - df_groupby:
+            by: business_team_id
+        - df_sum:
+            column: [业主数量_full,骑手人数_full,商圈数量_full,私教数量_full,大区数量_full,分部数量_full]
+
+        - df_reset_index: []
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: business_team_id
+            how: right
+            drop_stash: true
+
+        - set_meta_month_column:
+            - month
+
+    # 根据城市与大区维度聚合数据
+    - name: compass_dc_city_agg_theater
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [dc_id, city_code, theater_team_id, theater_team_name, division_team_id, division_team_name, business_team_id,business_team_name, 龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠, 奋进骑手, 服务骑手, 高效骑手, 完美骑手,骑手人数,日均单量,完成单量,荣誉骑手数,有单骑手数, non_rank_dc]
+        - df_select:
+            - 'non_rank_dc != 1'
+        - df_groupby:
+            by: [city_code, theater_team_id, division_team_id, business_team_id]
+        - df_sum:
+            column: [奋进骑手,服务骑手,高效骑手,完美骑手,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,骑手人数,日均单量,完成单量]
+        - df_reset_index: []
+
+
+    # 根据城市与分部维度聚合数据
+    - name: compass_dc_city_agg_division
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [dc_id, city_code,city_name, division_team_id, division_team_name, business_team_id,business_team_name, 龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠, 奋进骑手, 服务骑手, 高效骑手, 完美骑手,骑手人数,日均单量,完成单量,荣誉骑手数,有单骑手数,non_rank_dc]
+        - df_select:
+            - 'non_rank_dc != 1'
+        - df_groupby:
+            by: [city_code,city_name, division_team_id, division_team_name, business_team_id,business_team_name]
+        - df_sum:
+            column: [奋进骑手,服务骑手,高效骑手,完美骑手,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,骑手人数,日均单量,完成单量]
+        - df_reset_index: []
+
+
+    # 根据城市、主体与事业部维度聚合数据
+    - name: compass_dc_city_agg_business
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [dc_id, city_code, city_name,supplier_id,supplier_name, business_team_id, business_team_name, 龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠, 奋进骑手, 服务骑手, 高效骑手, 完美骑手, 骑手人数,日均单量,完成单量,荣誉骑手数,有单骑手数,non_rank_dc]
+        - df_select:
+            - 'non_rank_dc != 1'
+        - df_groupby:
+            by: [city_code,city_name,supplier_id,supplier_name, business_team_id,business_team_name]
+        - df_sum:
+            column: [奋进骑手,服务骑手,高效骑手,完美骑手,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠, 骑手人数,日均单量,完成单量]
+        - df_reset_index: []
+
+
+
+
+
+
+
+
+

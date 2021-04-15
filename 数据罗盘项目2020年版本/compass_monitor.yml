@@ -1,0 +1,815 @@
+compass_monitor_form_snap_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+    # 商圈数据
+    - std_qplus_dc
+    # 商圈数据
+    - compass_dc_label_chain
+    # 集团数据
+    - compass_group_label_summary
+    # 基础数据
+    - ele_cost_knight_by_daily_t2
+    - mt_cost_knight_by_daily_t2
+
+
+  play:
+      # 处理集团单均成本
+    - name: monitor_compass_group_avgcost
+      sync_result: true
+      cooks:
+        #”单均成本“，”单均收入“，”利润率“，”日均单量“判断其余的指标
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            month_offset: -3
+            ignore_null_error: true
+            columns: [单均成本]
+            rename:
+                单均成本: 3个月前单均成本
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            month_offset: -2
+            ignore_null_error: true
+            columns: [单均成本]
+            rename:
+                单均成本: 2个月前单均成本
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            columns: [单均成本]
+            month_value: prev_month
+            ignore_null_error: ture
+            rename:
+                单均成本: 上月单均成本
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_group_label_summary
+            columns: [单均成本]
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [scene]
+            how: right
+            drop_stash: true
+        - df_eval:
+            - |
+                [单均成本deviation]=abs(([单均成本]-(([上月单均成本]+[2个月前单均成本]+[3个月前单均成本])/3))/(([上月单均成本]+[2个月前单均成本]+[3个月前单均成本])/3))
+        - df_set_column_val_if:
+            column: 单均成本区间是否异常
+            condition: '@t1<=[单均成本deviation]<=@t2'
+            params:
+                t1: 0
+                t2: 0.4
+            val: 0
+            else_val: 1
+
+      #通过单均收入可以直接判断主营业务收入和完成单量是否正常
+    - name: monitor_compass_group_avgincome
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            month_offset: -3
+            ignore_null_error: true
+            columns: [单均收入]
+            rename:
+                单均收入: 3个月前单均收入
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            month_offset: -2
+            ignore_null_error: true
+            columns: [单均收入]
+            rename:
+                单均收入: 2个月前单均收入
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            columns: [单均收入]
+            month_value: prev_month
+            ignore_null_error: ture
+            rename:
+                单均收入: 上月单均收入
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_group_label_summary
+            columns: [单均收入]
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [scene]
+            how: right
+            drop_stash: true
+        - df_eval:
+            - |
+                [单均收入deviation]=abs(([单均收入]-(([上月单均收入]+[2个月前单均收入]+[3个月前单均收入])/3))/(([上月单均收入]+[2个月前单均收入]+[3个月前单均收入])/3))
+        - df_set_column_val_if:
+            column: 单均收入区间是否异常
+            condition: '@t1<=[单均收入deviation]<=@t2'
+            params:
+                t1: 0
+                t2: 0.2
+            val: 0
+            else_val: 1
+
+
+    #日均单量范围不和其他相关，单独监测（可以考虑直接验算）。完成单量
+    - name: monitor_compass_group_dailyorder
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            month_offset: -3
+            ignore_null_error: true
+            columns: [日均单量]
+            rename:
+                日均单量: 3个月前日均单量
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            month_offset: -2
+            ignore_null_error: true
+            columns: [日均单量]
+            rename:
+                日均单量: 2个月前日均单量
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            columns: [日均单量]
+            month_value: prev_month
+            ignore_null_error: ture
+            rename:
+                日均单量: 上月日均单量
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_group_label_summary
+            columns: [日均单量]
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [scene]
+            how: right
+            drop_stash: true
+        - df_eval:
+            - |
+                [日均单量deviation]=abs(([日均单量]-(([上月日均单量]+[2个月前日均单量]+[3个月前日均单量])/3))/(([上月日均单量]+[2个月前日均单量]+[3个月前日均单量])/3))
+        - df_set_column_val_if:
+            column: 日均单量区间是否异常
+            condition: '@t1<=[日均单量deviation]<=@t2'
+            params:
+                t1: 0
+                t2: 1
+            val: 0
+            else_val: 1
+        - df_set_column_val_if:
+            column: 完成单量区间是否异常
+            condition: '[日均单量区间是否异常]==@t1'
+            params:
+                t1: 0
+            val: 0
+            else_val: 1
+
+    #利润率可以直接判定 利润 收入 事业部总成本
+    - name: monitor_compass_group_profitratio
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            month_offset: -3
+            ignore_null_error: true
+            columns: [利润率]
+            rename:
+                利润率: 3个月前利润率
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            month_offset: -2
+            ignore_null_error: true
+            columns: [利润率]
+            rename:
+                利润率: 2个月前利润率
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: compass_group_label_summary
+            dataset_cate: std
+            columns: [利润率]
+            month_value: prev_month
+            ignore_null_error: ture
+            rename:
+                利润率: 上月利润率
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_group_label_summary
+            columns: [利润率]
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [scene]
+            how: right
+            drop_stash: true
+        - df_eval:
+            - |
+                [利润率deviation]=abs(([利润率]-(([上月利润率]+[2个月前利润率]+[3个月前利润率])/3))/(([上月利润率]+[2个月前利润率]+[3个月前利润率])/3))
+        - df_set_column_val_if:
+            column: 利润率区间是否异常
+            condition: '@t1<=[利润率deviation]<=@t2'
+            params:
+                t1: 0
+                t2: 1
+            val: 0
+            else_val: 1
+
+    #合并表格
+    - name: monitor_compass_group_index_base
+      sync_result: true
+      cooks:
+        - use_df:
+            key: monitor_compass_group_profitratio
+            columns: [scene,利润率区间是否异常]
+        - stash_push_df: []
+        - use_df:
+            key: monitor_compass_group_avgincome
+            columns: [scene,单均收入区间是否异常]
+        - stash_push_df: []
+        - use_df:
+            key: monitor_compass_group_avgcost
+            columns: [scene,单均成本区间是否异常]
+        - stash_push_df: []
+        - use_df:
+            key: monitor_compass_group_dailyorder
+            columns: [scene,日均单量区间是否异常,完成单量区间是否异常]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: scene
+            how: outer
+            drop_stash: true
+        - fetch_cols:
+            columns: [利润率区间是否异常,单均收入区间是否异常,单均成本区间是否异常,日均单量区间是否异常,完成单量区间是否异常]
+    #三个值均异常时的特例，无法判断，所有重要指标均标记为错误
+    - name: monitor_compass_group_index
+      sync_result: true
+      cooks:
+        #以上为提取前几个表的字段
+        - use_df:
+            key: monitor_compass_group_index_base
+            columns: [单均收入区间是否异常,利润率区间是否异常,单均成本区间是否异常,日均单量区间是否异常,完成单量区间是否异常]
+        - df_set_column_val_if:
+            column: compass重大计算错误
+            condition: '([单均成本区间是否异常] == @p1) & ([单均收入区间是否异常] == @p1) & ([利润率区间是否异常] == @p1)'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+
+        #单均收入和单程成本,利润率联合判定
+        #事业部
+        - df_set_column_val_if:
+            column: 事业部总成本区间是否异常
+            condition: '[单均成本区间是否异常]==@p1'
+            params:
+              p1: 1
+            val: 1
+            else_val: 0
+        #主营业务收入
+
+        - df_set_column_val_if:
+            column: 主营业务收入区间是否异常
+            condition: '[单均收入区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+        #除了三个条件都错的情况外，其他的逻辑上已经没问题了。现在监测收入
+        #如果收入和事业部总成本都错了，利润率一定错，报错后修改这两个指标，但是收入没改，利润率还是错的，就会定位到收入问题。所以一次程序就够了。
+        - df_set_column_val_if:
+            column: 收入区间是否异常
+            condition: '[利润率区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: compass_dc_label_chain和cost_revenue_dc_agg_dc异常
+            condition: '[收入区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+
+        #以上的程序监测了；主营业务收入，完成单量，利润，利润率，收入，单均收入，事业部总成本，单均成本
+        #接下来定位具体的数据源问题点，由二级指标“主营业务收入”，“完成单量”，“收入”，“事业部总成本”即可得出
+        - df_set_column_val_if:
+            column: compass_dc_label_chain表"完成单量"异常
+            condition: '[完成单量区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: mt_ele_teams_basic_lable_by_daily_t2表"结算单量"异常
+            condition: '[完成单量区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+        #以上是完成单量部分，下面是主营业务收入监测
+
+        - df_set_column_val_if:
+            column: compass_dc_label_chain"主营业务收入"异常
+            condition: '[主营业务收入区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+
+
+        - df_set_column_val_if:
+            column: （收入小计、评星奖惩总额、扣罚、平台政策收入、强分摊收入）异常
+            condition: '[主营业务收入区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 需要检测各维度cost_revenue“自身成本”
+            condition: '[事业部总成本区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+        - fetch_cols:
+            columns: [日均单量区间是否异常,完成单量区间是否异常,单均成本区间是否异常,单均收入区间是否异常,利润率区间是否异常,compass重大计算错误,事业部总成本区间是否异常,完成单量区间是否异常,日均单量区间是否异常,主营业务收入区间是否异常,收入区间是否异常,compass_dc_label_chain表"完成单量"异常,mt_ele_teams_basic_lable_by_daily_t2表"结算单量"异常,compass_dc_label_chain"主营业务"收入异常,（收入小计、评星奖惩总额、扣罚、平台政策收入、强分摊收入）异常,需要检测各维度cost_revenue“自身成本”]
+
+
+    #商圈监测，采用反向思路，只监测最基础的数据
+    #日均avg
+    - name: monitor_compass_dc_label_dailyorders_avg_mid
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [日均单量,收入,资产商圈利润]
+        - add_cols:
+            - scene: 1
+              count: 1
+        - df_groupby:
+            by: scene
+        - df_sum:
+            column: [日均单量,收入,资产商圈利润,count]
+        - df_reset_index: []
+        - df_eval:
+            - |
+                [日均单量avg]=[日均单量]/[count]
+                [收入avg]=[收入]/[count]
+                [资产商圈利润avg]=[资产商圈利润]/[count]
+        - add_cols:
+            - temp_list: 1
+        - fetch_cols:
+            columns: [日均单量avg, 收入avg, 资产商圈利润avg, temp_list]
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_chain
+        - add_cols:
+            - temp_list: 1
+        - stash_push_df: []
+        - stash_join_df:
+            on: temp_list
+            how: left
+
+    - name: monitor_compass_dc_label_dailyorders
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code:  compass_dc_label_chain
+            dataset_cate: std
+            month_offset: -3
+            ignore_null_error: true
+            columns: [dc_id,日均单量]
+            rename:
+                日均单量: dc3个月前日均单量
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: compass_dc_label_chain
+            dataset_cate: std
+            month_offset: -2
+            ignore_null_error: true
+            columns: [dc_id,日均单量]
+            rename:
+                日均单量: dc2个月前日均单量
+        - stash_push_df: []
+        - fetch_dataset:
+            dataset_type_code: compass_dc_label_chain
+            dataset_cate: std
+            columns: [dc_id,日均单量]
+            month_value: prev_month
+            ignore_null_error: ture
+            rename:
+                日均单量: dc上月日均单量
+        - stash_push_df: []
+
+        - use_df:
+            key: monitor_compass_dc_label_dailyorders_avg_mid
+            columns: [dc_id,dc_name,platform_code,日均单量,日均单量avg]
+            rename:
+                日均单量: dc日均单量
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - df_fillna:
+            columns: [dc日均单量,dc上月日均单量,dc2个月前日均单量,dc3个月前日均单量,dc_name,platform_code,日均单量avg]
+            value: 0
+
+        - df_eval:
+            - |
+                [dc日均单量deviation]=abs(([dc日均单量]-(([dc上月日均单量]+[dc2个月前日均单量]+[dc3个月前日均单量])/3))/(([dc上月日均单量]+[dc2个月前日均单量]+[dc3个月前日均单量])/3))
+                [dc日均单量avg比较]= abs([dc日均单量]/[日均单量avg])
+        - df_set_column_val_if:
+            column: dc日均单量区间是否异常mid1
+            condition: '@t1<=[dc日均单量deviation]<=@t2'
+            params:
+                t1: 0
+                t2: 1
+            val: 0
+            else_val: 1
+        - df_set_column_val_if:
+            column: 是否是新增商圈
+            condition: '[dc上月日均单量]== @t1|[dc2个月前日均单量] == @t1 | [dc3个月前日均单量]==@t1'
+            params:
+                t1: 0
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 是否偏离均值
+            condition: '@t1<=[dc日均单量avg比较]<= @t2'
+            params:
+                t1: 0
+                t2: 1
+            val: 0
+            else_val: 1
+        - df_set_column_val_if:
+            column: dc日均单量区间是否异常mid2
+            condition: '([dc日均单量区间是否异常mid1]== @t1) & ([是否是新增商圈] == @t2)'
+            params:
+                t1: 1
+                t2: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: dc日均单量区间是否异常mid3
+            condition: '([是否偏离均值]== @t1) & ([是否是新增商圈] == @t1)'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - df_eval:
+            - |
+                [dc日均单量区间是否异常]=[dc日均单量区间是否异常mid2]+[dc日均单量区间是否异常mid3]
+
+        - df_set_column_val_if:
+            column: mt_ele_teams_basic_lable_by_daily_t2是否异常
+            condition: '[dc日均单量区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+        - fetch_cols:
+            columns: [dc_id,dc_name,platform_code,dc日均单量,是否是新增商圈,dc日均单量区间是否异常,mt_ele_teams_basic_lable_by_daily_t2是否异常]
+    #收入
+    - name: monitor_compass_dc_label_income
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: compass_dc_label_chain
+            dataset_cate: std
+            month_offset: -3
+            ignore_null_error: true
+            columns: [dc_id,收入,结算单量,日均单量]
+            rename:
+                收入: dc3个月前收入
+        - df_eval:
+            - |
+                [dc3个月前日均收入] = [dc3个月前收入]/([结算单量]/[日均单量])
+        - fetch_cols:
+            columns: [dc_id,dc3个月前日均收入]
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: compass_dc_label_chain
+            dataset_cate: std
+            month_offset: -2
+            ignore_null_error: true
+            columns: [dc_id,收入,结算单量,日均单量]
+            rename:
+               收入: dc2个月前收入
+        - df_eval:
+            - |
+               [dc2个月前日均收入] = [dc2个月前收入]/([结算单量]/[日均单量])
+        - fetch_cols:
+            columns: [dc_id,dc2个月前日均收入]
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: compass_dc_label_chain
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [dc_id,收入,结算单量,日均单量]
+            rename:
+               收入: dc上个月收入
+        - df_eval:
+            - |
+               [dc上个月日均收入] = [dc上个月收入]/([结算单量]/[日均单量])
+        - fetch_cols:
+            columns: [dc_id,dc上个月日均收入]
+        - stash_push_df: []
+    #收入当月
+        - use_df:
+            key: monitor_compass_dc_label_dailyorders_avg_mid
+            columns: [dc_id,dc_name,platform_code,收入,结算单量,日均单量,收入avg]
+            rename:
+               收入: dc收入
+        - df_eval:
+            - |
+               [dc日均收入] = [dc收入]/([结算单量]/[日均单量])
+        - fetch_cols:
+            columns: [dc_id,dc日均收入,dc_name,platform_code,dc收入,收入avg]
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - df_fillna:
+            columns: [dc日均收入,dc上个月日均收入,dc2个月前日均收入,dc3个月前日均收入]
+            value: 0
+        - df_eval:
+            - |
+                [dc日均收入deviation]=abs(([dc日均收入]-(([dc上个月日均收入]+[dc2个月前日均收入]+[dc3个月前日均收入])/3))/(([dc上个月日均收入]+[dc2个月前日均收入]+[dc3个月前日均收入])/3))
+                [dc日均收入avg比较]= abs([dc收入]/[收入avg])
+# 分母改成 前三个月平均值
+        - df_set_column_val_if:
+            column: dc日均收入区间是否异常mid1
+            condition: '@t1<=[dc日均收入deviation]<=@t2'
+            params:
+                t1: 0
+                t2: 1
+            val: 0
+            else_val: 1
+        - df_set_column_val_if:
+            column: 是否是新增商圈
+            condition: '[dc上个月日均收入]== @t1|[dc2个月前日均收入] == @t1 | [dc3个月前日均收入]==@t1'
+            params:
+                t1: 0
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 是否偏离均值
+            condition: '@t1<=[dc日均收入avg比较]<= @t2'
+            params:
+                t1: 0
+                t2: 2
+            val: 0
+            else_val: 1
+
+        - df_set_column_val_if:
+            column: dc收入区间是否异常mid2
+            condition: '([dc日均收入区间是否异常mid1]== @t1) & ([是否是新增商圈] == @t2)'
+            params:
+                t1: 1
+                t2: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: dc收入区间是否异常mid3
+            condition: '([是否偏离均值]== @t1) & ([是否是新增商圈] == @t1)'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - df_eval:
+            - |
+                [dc收入区间是否异常]=[dc收入区间是否异常mid2]+[dc收入区间是否异常mid3]
+
+       ##是新增商圈，但是异常，需要通过同城市的一些值进行比较。
+
+        - df_set_column_val_if:
+            column: cost_revenue_dc_agg_dc是否异常
+            condition: '[dc收入区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+        - fetch_cols:
+            columns: [dc_id,dc_name,platform_code,dc收入,cost_revenue_dc_agg_dc是否异常,dc收入区间是否异常,是否是新增商圈]
+    #资产商圈利润
+    - name: monitor_compass_dc_label_assetsbusinessprofit
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: compass_dc_label_chain
+            dataset_cate: std
+            month_offset: -3
+            ignore_null_error: true
+            columns: [dc_id,资产商圈利润,结算单量,日均单量]
+            rename:
+                资产商圈利润: dc3个月前资产商圈利润
+        - df_eval:
+            - |
+                [dc3个月前日均资产商圈利润] = [dc3个月前资产商圈利润]/([结算单量]/[日均单量])
+        - fetch_cols:
+            columns: [dc_id,dc3个月前日均资产商圈利润]
+        - stash_push_df: []
+     #资产商圈利润2月前
+
+        - fetch_dataset:
+            dataset_type_code: compass_dc_label_chain
+            dataset_cate: std
+            month_offset: -2
+            ignore_null_error: true
+            columns: [dc_id,资产商圈利润,结算单量,日均单量]
+            rename:
+                资产商圈利润: dc2个月前资产商圈利润
+        - df_eval:
+            - |
+                [dc2个月前日均资产商圈利润] = [dc2个月前资产商圈利润]/([结算单量]/[日均单量])
+        - fetch_cols:
+            columns: [dc_id,dc2个月前日均资产商圈利润]
+        - stash_push_df: []
+     #资产商圈利润上个月
+
+        - fetch_dataset:
+            dataset_type_code: compass_dc_label_chain
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [dc_id,资产商圈利润,结算单量,日均单量]
+            rename:
+                资产商圈利润: dc上个月资产商圈利润
+        - df_eval:
+            - |
+                [dc上个月日均资产商圈利润] = [dc上个月资产商圈利润]/([结算单量]/[日均单量])
+        - fetch_cols:
+            columns: [dc_id,dc上个月日均资产商圈利润]
+        - stash_push_df: []
+     #资产商圈利润当月
+        - use_df:
+            key: monitor_compass_dc_label_dailyorders_avg_mid
+            columns: [dc_id,dc_name,platform_code,资产商圈利润,结算单量,日均单量,资产商圈利润avg]
+            rename:
+                资产商圈利润: dc资产商圈利润
+        - df_eval:
+            - |
+                [dc日均资产商圈利润] = [dc资产商圈利润]/([结算单量]/[日均单量])
+        - fetch_cols:
+            columns: [dc_id,dc日均资产商圈利润,dc_name,platform_code,dc资产商圈利润,资产商圈利润avg]
+        - stash_push_df: []
+    #资产商圈利润
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - df_fillna:
+            columns: [dc日均资产商圈利润,dc上个月日均资产商圈利润,dc2个月前日均资产商圈利润,dc3个月前日均资产商圈利润]
+            value: 0
+        - df_eval:
+            - |
+                [dc日均资产商圈利润deviation]=abs(([dc日均资产商圈利润]-(([dc上个月日均资产商圈利润]+[dc2个月前日均资产商圈利润]+[dc3个月前日均资产商圈利润])/3))/(([dc上个月日均资产商圈利润]+[dc2个月前日均资产商圈利润]+[dc3个月前日均资产商圈利润])/3))
+                [dc资产商圈利润avg比较]= abs([dc资产商圈利润]/[资产商圈利润avg])
+        - df_set_column_val_if:
+            column: dc日均资产商圈利润区间是否异常mid1
+            condition: '@t1<=[dc日均资产商圈利润deviation]<=@t2'
+            params:
+                t1: 0
+                t2: 3
+            val: 0
+            else_val: 1
+        - df_set_column_val_if:
+            column: 是否是新增商圈
+            condition: '[dc上个月日均资产商圈利润]== @t1|[dc2个月前日均资产商圈利润] == @t1 | [dc3个月前日均资产商圈利润]==@t1'
+            params:
+                t1: 0
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 是否偏离均值
+            condition: '@t1<=[dc资产商圈利润avg比较]<=@t2'
+            params:
+                t1: 0
+                t2: 2
+            val: 0
+            else_val: 1
+
+        - df_set_column_val_if:
+            column: dc资产商圈利润区间是否异常mid2
+            condition: '([dc日均资产商圈利润区间是否异常mid1]== @t1) & ([是否是新增商圈] == @t2)'
+            params:
+                t1: 1
+                t2: 0
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: dc资产商圈利润区间是否异常mid3
+            condition: '([是否偏离均值]== @t1) & ([是否是新增商圈] == @t1)'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+
+        - df_eval:
+              - |
+                  [dc资产商圈利润区间是否异常]=[dc资产商圈利润区间是否异常mid2]+[dc资产商圈利润区间是否异常mid3]
+
+        - df_set_column_val_if:
+            column: compass_dc_label_chain是否异常
+            condition: '[dc资产商圈利润区间是否异常]==@p1'
+            params:
+                p1: 1
+            val: 1
+            else_val: 0
+        - fetch_cols:
+            columns: [dc_id,dc_name,platform_code,dc资产商圈利润,compass_dc_label_chain是否异常,dc资产商圈利润区间是否异常,是否是新增商圈]
+
+      # 商圈监控
+    - name: monitor_compass_dc_label_index
+      sync_result: true
+      cooks:
+        - use_df:
+            key: monitor_compass_dc_label_assetsbusinessprofit
+            columns: [dc_id,dc资产商圈利润区间是否异常,compass_dc_label_chain是否异常,dc资产商圈利润]
+        - stash_push_df: []
+        - use_df:
+            key: monitor_compass_dc_label_dailyorders
+            columns: [dc_id,dc_name,platform_code,dc日均单量,dc日均单量区间是否异常,mt_ele_teams_basic_lable_by_daily_t2是否异常]
+        - stash_push_df: []
+        - use_df:
+            key: monitor_compass_dc_label_income
+            columns: [dc_id,dc收入,dc收入区间是否异常,cost_revenue_dc_agg_dc是否异常]
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: outer
+            drop_stash: true

@@ -1,0 +1,1018 @@
+monitor_std_data_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+
+  pre_load_dataset: 
+
+     # 商圈新财报数据,这个是月数据？
+    - std_qplus_dc
+
+    # MT骑手成本数据
+    - mt_cost_knight_by_daily_t2
+
+    # ELE骑手成本数据
+    - ele_cost_knight_by_daily_t2
+
+    # 美团 T+2 收入数据，包含基础收入和成本数据
+    - mt_teams_basic_lable_by_daily_t2
+
+    # ele T+2 收入数据，
+    - ele_teams_basic_lable_by_daily_t2
+
+    # 对ele_teams_basic_lable_by_daily_t2做了加工
+    # 与mt_teams_basic_lable_by_daily_t2的内容相同,包含了成本和收入
+    - compass_dc_label_ele_base
+
+    # 骑手数据
+    # - compass_knight_label_chain
+
+    # ele薪资日数据，带日期
+    - ele_worker_order_common_kpi_by_daily_t2
+
+    # MT薪资日数据，带日期
+    - mt_worker_order_common_kpi_by_daily_t2
+
+    # # ele薪资数据源
+    # - ele_worker_order_common_kpi_by_monthly_t2
+
+    # # MT薪资数据源
+    # - mt_worker_order_common_kpi_by_monthly_t2
+
+    # 饿了么配送费 可计算完成单量
+    - ele_day_34_std
+
+    # 美团运营指标监控
+    - mt_day_18_std
+     
+
+    # 监控商圈单成本的异常值
+    # 美团成本数据
+    - mt_dc_cost_t2
+
+    # 饿了么单成本测算
+    - ele_dc_cost_t2
+    
+    # 商圈基础收入
+    # 美团基础收入，对应的字段是收入小计
+    - mt_day_4_std_ttl_ext
+
+    # 饿了么配送费，通过计算得出饿了么基础收入
+    # [基础收入] = [基础配送费] + [城市基础价]+ [商圈加价] + [其他补贴金额] + [申诉应收金额] + [其他基础收入_手工]
+    - ele_day_34_ttl_std_ext
+
+  play:
+    # 饿了么和美团可能会出现最终日期不同的情况
+    # 监控完成单量，日对比，
+    - name: monitor_std_dc_order_num_daily
+      sync_result: true
+      cook: 
+        # 饿了么和美团的最终日期是不同的
+        # 饿了么网点日完成单量监控
+        - use_df:
+            key: ele_worker_order_common_kpi_by_daily_t2
+            columns: [日期, dc_id, 完成单量]
+        - add_cols:
+            - 饿了么平台: 1
+              来源: 'ele_worker_order_common_kpi_by_daily_t2'        
+        - push_dataset:
+            key: ele_order_num_data
+        - run_py:
+            - | 
+                df = to_df(df)
+                max_date = df[u'日期'].max()
+                df_past = df[df[u'日期'] != max_date]
+                result = to_dd(df_past)
+
+        - df_groupby:
+            by: [dc_id, 日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+        - df_groupby:
+            by: dc_id
+        - df_mean:
+            column: 完成单量
+            rename: 过去完成单量均值
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: ele_order_num_data
+        - run_py: 
+            - |
+                df = to_df(df)
+                max_date = df[u'日期'].max()
+                df_now = df[df[u'日期'] == max_date]
+                result = to_dd(df_now)  
+
+        - df_groupby:
+            by: dc_id
+        - df_sum:
+            column: 完成单量
+            rename: 今日完成单量
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - add_cols:
+            - 变化率: 0
+        - df_eval:
+            - '[变化率] = ([今日完成单量] / [过去完成单量均值] - 1) * 100'
+        - add_cols:
+            - 完成单量_异常: 0.0
+        - df_set_column_val_if:
+            column: 完成单量_异常
+            condition: '([变化率] > @p1) | ([变化率] < @p2)'
+            params:
+                p1: 50 
+                p2: -50
+            val: 1 
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: ele_order_num_data
+            columns: [dc_id, 来源]
+        - drop_duplicates:
+            subset: [dc_id, 来源]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            # fillna: 0 
+            drop_stash: true
+
+        - push_dataset:
+            key: ele_order_num_monitor
+
+        # 美团网点日完成单量监控
+        - use_df:
+            key: mt_worker_order_common_kpi_by_daily_t2
+            columns: [日期, dc_id, 完成单量]
+        - add_cols:
+            - 美团平台: 1
+              来源: 'mt_worker_order_common_kpi_by_daily_t2'
+
+        - push_dataset:
+            key: mt_order_num_data
+
+        - run_py:
+            - | 
+                df = to_df(df)
+                max_date = df[u'日期'].max()
+                df_past = df[df[u'日期'] != max_date]
+                result = to_dd(df_past)
+
+        - df_groupby:
+            by: [dc_id, 日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+        - df_groupby:
+            by: dc_id
+        - df_mean:
+            column: 完成单量
+            rename: 过去完成单量均值
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: mt_order_num_data
+        - run_py: 
+            - |
+                df = to_df(df)
+                max_date = df[u'日期'].max()
+                df_now = df[df[u'日期'] == max_date]
+                result = to_dd(df_now)  
+
+        - df_groupby:
+            by: dc_id
+        - df_sum:
+            column: 完成单量
+            rename: 今日完成单量
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - add_cols:
+            - 变化率: 0
+        - df_eval:
+            - '[变化率] = ([今日完成单量] / [过去完成单量均值] - 1) * 100'
+        - add_cols:
+            - 完成单量_异常: 0.0
+        - df_set_column_val_if:
+            column: 完成单量_异常
+            condition: '([变化率] > @p1) | ([变化率] < @p2)'
+            params:
+                p1: 50 
+                p2: -50
+            val: 1 
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: mt_order_num_data
+            columns: [dc_id, 来源]
+        - drop_duplicates:
+            subset: [dc_id, 来源]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            # fillna: 0
+            drop_stash: true
+        - stash_push_df: []
+
+        # 合并美团和饿了么的单量监控结果
+        - use_df:
+            key: ele_order_num_monitor
+        - stash_push_df: []
+        - stash_concat_df:
+            drop_stash: true
+        - stash_push_df: []
+
+        # 增加商圈名称
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id, dc_name]
+        - stash_push_df: []
+
+        - stash_join_df: 
+            on: dc_id
+            how: left
+            drop_stash: true
+
+    # 监控商圈基础收入
+    - name: monitor_std_dc_revenue
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_teams_basic_lable_by_daily_t2
+            columns: [dc_id, 订单天数, 收入小计]
+            rename: 
+                收入小计: 基础收入
+        - add_cols: 
+            - 美团平台: 1
+              来源: 'mt_teams_basic_lable_by_daily_t2'
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_ele_base
+            columns: [dc_id, 订单天数, 基础收入]
+        - add_cols:
+            - 饿了么平台: 1 
+              来源: 'compass_dc_label_ele_base'
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'基础收入_per_day'] = df[u'基础收入'] / df[u'订单天数']
+                df_info = df[[u'来源','dc_id']]
+                df = df.groupby(by='dc_id').agg('mean')
+                df = df.reset_index()
+                df = pd.merge(df, df_info, on=u'dc_id', how='left')
+                result = to_dd(df)
+        - push_dataset:
+                key: now_csot_revenue
+
+        - fetch_dataset:
+            dataset_type_code: compass_dc_label_ele_base
+            dataset_cate: std
+            month_offset: -1
+            columns: [dc_id, 订单天数, 基础收入]
+            ignore_null_error: true
+        - stash_push_df: []
+
+
+        - fetch_dataset:
+            dataset_type_code: mt_teams_basic_lable_by_daily_t2
+            dataset_cate: std
+            month_offset: -1
+            columns: [dc_id, 订单天数, 收入小计]
+            rename:
+                收入小计: 基础收入
+            ignore_null_error: true
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'基础收入_per_day_past'] = df[u'基础收入'] / df[u'订单天数']
+                df = df.groupby(by='dc_id').agg('mean')
+                df = df.reset_index()
+                result = to_dd(df)
+        - stash_push_df: []
+
+        - use_df:
+            key: now_csot_revenue
+            rename: 
+                订单天数: 订单天数_now
+                基础收入: 基础收入_now
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            drop_stash: true
+
+        - run_py:
+            - | 
+                df = to_df(df)
+                df[u'基础收入_变化率'] = (df[u'基础收入_per_day'] / df[u'基础收入_per_day_past'] -1) * 100
+                
+                df['基础收入_异常'] = 0
+                
+                df.loc[(df[u'基础收入_变化率'] > 50) | (df[u'基础收入_变化率'] < -50), u'基础收入_异常'] = 1
+                df = df.fillna(0)
+                result = to_dd(df)
+        - stash_push_df: []
+
+
+        - use_df:
+            key: std_qplus_dc
+            dataset_cate: std
+            columns: [dc_id, dc_name]
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            how: left
+            on: dc_id
+            drop_stash: true
+
+   # 监控骑手成本
+    - name: monitor_std_dc_knight_cost
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_teams_basic_lable_by_daily_t2
+            columns: [dc_id, 订单天数]
+        - add_cols: 
+            - 饿了么平台: 1
+        - stash_push_df: []
+
+        - use_df:
+            key: mt_teams_basic_lable_by_daily_t2
+            columns: [dc_id, 订单天数]
+        - add_cols:
+            - 美团平台: 1 
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+        - push_dataset:
+            key: dc_order_day_num_now
+
+        - use_df:
+            key: mt_cost_knight_by_daily_t2
+            dataset_cate: std
+            columns: [dc_id, 商圈骑手成本]
+        - stash_push_df: []
+
+        - use_df:
+            key: ele_cost_knight_by_daily_t2
+            dataset_cate: std
+            columns: [dc_id, 商圈骑手成本]
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+        - stash_push_df: []
+
+        - use_df:
+            key: dc_order_day_num_now
+        - stash_push_df: []
+                
+        - stash_join_df: 
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'骑手成本_per_day'] = df[u'商圈骑手成本'] / df[u'订单天数']
+                df = df.groupby(by='dc_id').agg('mean')
+                df = df.reset_index()
+                df = df.fillna(0)
+                result = to_dd(df)
+        - push_dataset:
+            key: now_dc_knight_cost
+
+        - fetch_dataset:
+            dataset_type_code: ele_teams_basic_lable_by_daily_t2
+            dataset_cate: std
+            month_offset: -1
+            columns: [dc_id, 订单天数]
+            ignore_null_error: true
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: mt_teams_basic_lable_by_daily_t2
+            dataset_cate: std
+            month_offset: -1
+            columns: [dc_id, 订单天数]
+            ignore_null_error: true
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+
+        - push_dataset:
+            key: dc_order_day_num_past
+
+        - fetch_dataset:
+            dataset_type_code: mt_cost_knight_by_daily_t2
+            dataset_cate: std
+            month_offset: -1
+            columns:  [dc_id, 商圈骑手成本]
+            ignore_null_error: true
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: ele_cost_knight_by_daily_t2
+            dataset_cate: std
+            month_offset: -1
+            columns:  [dc_id, 商圈骑手成本]
+            ignore_null_error: true
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+        - stash_push_df: [] 
+
+        - use_df:
+            key: dc_order_day_num_past
+        - stash_push_df: []
+
+        - stash_join_df: 
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'骑手成本_per_day_past'] = df[u'商圈骑手成本'] / df[u'订单天数']
+                df = df.groupby(by='dc_id').agg('mean')
+                df = df.reset_index()
+                df = df.fillna(0)
+                result = to_dd(df)
+        - stash_push_df: []
+
+        - use_df:
+            key: now_dc_knight_cost
+            rename: 
+                订单天数: 订单天数_now
+                商圈骑手成本: 商圈骑手成本_now
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - run_py:
+            - | 
+                df = to_df(df)
+                df[u'骑手成本_变化率'] = (df[u'骑手成本_per_day'] / df[u'骑手成本_per_day_past'] -1) * 100
+            
+                df[u'骑手成本_异常'] = 0
+                df.loc[(df[u'骑手成本_变化率'] > 50) | (df[u'骑手成本_变化率'] < -50), u'骑手成本_异常'] = 1
+                
+                df = df.fillna(0)
+                df[u'来源'] = u'cost_knight_by_daily_t2'
+                result = to_dd(df)
+        - stash_push_df: []
+
+
+        - use_df:
+            key: std_qplus_dc
+            dataset_cate: std
+            columns: [dc_id, dc_name]
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            how: left
+            on: dc_id
+            drop_stash: true
+
+   # 汇总输出数据监控结果
+    - name: monitor_std_output
+      sync_result: true
+      cook:
+        - use_df:
+                key: monitor_std_dc_order_num_daily
+                columns: [dc_id, 来源, 完成单量_异常]
+                rename:
+                    来源: 完成单量_来源
+        - stash_push_df: []
+
+        - use_df: 
+            key: monitor_std_dc_revenue
+            columns: [dc_id, dc_name, 基础收入_异常, 来源]
+            rename:
+                来源: 基础收入_来源
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - stash_push_df: []
+
+        - use_df:
+            key: monitor_std_dc_knight_cost
+            columns: [dc_id, dc_name, 骑手成本_异常, 来源, 美团平台, 饿了么平台]
+            rename: 
+                来源: 骑手成本_来源
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+
+        - df_eval:
+            - | 
+                [异常汇总] =  [完成单量_异常] + [基础收入_异常] + [骑手成本_异常]
+        - fetch_cols:
+            columns: [dc_id, dc_name, 异常汇总, 美团平台, 饿了么平台, 骑手成本_异常, 骑手成本_来源, 基础收入_异常, 基础收入_来源, 完成单量_异常, 完成单量_来源]      
+
+# 对输入数据进行监控
+
+   # 对基础数据的单量监控
+    - name: monitor_std_input_dc_order_num
+      sync_result: true
+      cook: 
+      # 饿了么和美团最终日期可能不一样，所以要分开计算再汇总
+      # 监控美团异常单量
+        - use_df: 
+            key: mt_day_18_std
+            columns: [站点ID, 骑手ID, 完成单量, 日期]
+        - add_cols:
+            - 美团平台: 1
+              来源: 'mt_day_18_std'
+        - push_dataset:
+            key: mt_order_num_data
+        - run_py:
+            - | 
+                df = to_df(df)
+                max_date = df[u'日期'].max()
+                df_past = df[df[u'日期'] != max_date]
+                result = to_dd(df_past)
+
+        - df_groupby:
+            by: [站点ID, 日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+        - df_groupby:
+            by: 站点ID
+        - df_mean:
+            column: 完成单量
+            rename: 过去完成单量均值
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: mt_order_num_data
+        - run_py: 
+            - |
+                df = to_df(df)
+                max_date = df[u'日期'].max()
+                df_now = df[df[u'日期'] == max_date]
+                result = to_dd(df_now)  
+
+        - df_groupby:
+            by: 站点ID
+        - df_sum:
+            column: 完成单量
+            rename: 今日完成单量
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: 站点ID
+            how: left
+            drop_stash: true
+        - add_cols:
+            - 变化率: 0
+        - df_eval:
+            - '[变化率] = ([今日完成单量] / [过去完成单量均值] - 1) * 100'
+        - add_cols:
+            - 完成单量_异常: 0.0
+        - df_set_column_val_if:
+            column: 完成单量_异常
+            condition: '([变化率] > @p1) | ([变化率] < @p2)'
+            params:
+                p1: 50 
+                p2: -50
+            val: 1 
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: mt_order_num_data
+            columns: [站点ID, 来源]
+        - drop_duplicates:
+            subset: [站点ID, 来源]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: 站点ID
+            how: right
+            drop_stash: true
+        - push_dataset:
+            key: mt_order_num_data_monitor          
+
+        # 饿了么单量监控
+        - use_df: 
+            key: ele_day_34_std 
+            columns: [账单时间, 站点ID, 骑手ID, 订单号]
+            rename: 
+                账单时间: 日期
+        - df_groupby:
+            by: [日期, 站点ID, 骑手ID]
+        - df_count:
+            column: 订单号
+            rename: 完成单量
+        - df_reset_index: []
+        - add_cols:
+            - 饿了么平台: 1
+              来源: 'ele_day_34_std'
+        - push_dataset:
+            key: ele_order_num_data
+
+        - run_py:
+            - | 
+                df = to_df(df)
+                max_date = df[u'日期'].max()
+                df_past = df[df[u'日期'] != max_date]
+                result = to_dd(df_past)
+
+        - df_groupby:
+            by: [站点ID, 日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+        - df_groupby:
+            by: 站点ID
+        - df_mean:
+            column: 完成单量
+            rename: 过去完成单量均值
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: ele_order_num_data
+        - run_py: 
+            - |
+                df = to_df(df)
+                max_date = df[u'日期'].max()
+                df_now = df[df[u'日期'] == max_date]
+                result = to_dd(df_now)  
+
+        - df_groupby:
+            by: 站点ID
+        - df_sum:
+            column: 完成单量
+            rename: 今日完成单量
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: 站点ID
+            how: left
+            drop_stash: true
+        - add_cols:
+            - 变化率: 0
+        - df_eval:
+            - '[变化率] = ([今日完成单量] / [过去完成单量均值] - 1) * 100'
+        - add_cols:
+            - 完成单量_异常: 0.0
+        - df_set_column_val_if:
+            column: 完成单量_异常
+            condition: '([变化率] > @p1) | ([变化率] < @p2)'
+            params:
+                p1: 50 
+                p2: -50
+            val: 1 
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: ele_order_num_data
+            columns: [站点ID, 来源]
+        - drop_duplicates:
+            subset: [站点ID, 来源]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: 站点ID
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+
+        # 合并美团和饿了么的单量监控结果
+        - use_df:
+            key: mt_order_num_data_monitor
+        - stash_push_df: []
+        - stash_concat_df:
+            drop_stash: true
+        - stash_push_df: []
+
+        # 增加商圈名称
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id, dc_name, vendor_dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+
+        - stash_join_df: 
+            on: 站点ID
+            how: left
+            # fillna: 0
+            drop_stash: true
+
+   # 对商圈基础收入的输入数据进行监控
+    - name: monitor_std_input_dc_revenue_cost
+      sync_result: true
+      cook:
+        - use_df:
+            key: mt_day_4_std_ttl_ext
+            columns: [dc_id, 订单天数, 收入小计]
+            rename: 
+                收入小计: 基础收入
+        - add_cols: 
+            - 美团平台: 1
+              来源: 'mt_teams_basic_lable_by_daily_t2'
+        - stash_push_df: []
+
+        - use_df:
+            key: ele_day_34_ttl_std_ext
+            columns: [dc_id, 订单天数, 基础配送费, 城市基础价, 商圈加价]
+        - add_cols:
+            - 饿了么平台: 1 
+              来源: 'ele_day_34_ttl_std_ext'
+        # 对三个数值固定指标求和，近似饿了么基础收入，由于是对波动监控，所以没有影响
+        - df_eval:
+            - | 
+                [基础收入] = [基础配送费] + [城市基础价]+ [商圈加价] 
+        - fetch_cols:
+            columns: [dc_id, 订单天数, 基础收入, 饿了么平台, 来源]
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'基础收入_per_day'] = df[u'基础收入'] / df[u'订单天数']
+                df_info = df[[u'来源','dc_id']]
+                df = df.groupby(by='dc_id').agg('mean')
+                df = df.reset_index()
+                df = pd.merge(df, df_info, on=u'dc_id', how='left')
+                df = df.fillna(0)
+                result = to_dd(df)
+        - push_dataset:
+                key: now_csot_revenue
+
+        - fetch_dataset:
+            dataset_type_code: ele_day_34_ttl_std_ext
+            dataset_cate: std
+            month_offset: -1
+            columns: [dc_id, 订单天数, 基础配送费, 城市基础价, 商圈加价]
+            ignore_null_error: true
+        - df_eval:
+            - | 
+                [基础收入] = [基础配送费] + [城市基础价]+ [商圈加价] 
+        - fetch_cols:
+            columns: [dc_id, 订单天数, 基础收入]
+        - stash_push_df: []
+
+
+        - fetch_dataset:
+            dataset_type_code: mt_day_4_std_ttl_ext
+            dataset_cate: std
+            month_offset: -1
+            columns: [dc_id, 订单天数, 收入小计]
+            rename:
+                收入小计: 基础收入
+            ignore_null_error: true
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'基础收入_per_day_past'] = df[u'基础收入'] / df[u'订单天数']
+                df = df.groupby(by='dc_id').agg('mean')
+                df = df.reset_index()
+                df = df.fillna(0)
+                result = to_dd(df)
+        - stash_push_df: []
+
+        - use_df:
+            key: now_csot_revenue
+            rename: 
+                订单天数: 订单天数_now
+                基础收入: 基础收入_now
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            drop_stash: true
+
+        - run_py:
+            - | 
+                df = to_df(df)
+                df[u'基础收入_变化率'] = (df[u'基础收入_per_day'] / df[u'基础收入_per_day_past'] -1) * 100
+                
+                df['基础收入_异常'] = 0
+                
+                df.loc[(df[u'基础收入_变化率'] > 50) | (df[u'基础收入_变化率'] < -50), u'基础收入_异常'] = 1
+                df = df.fillna(0)
+                result = to_dd(df)
+        - stash_push_df: []
+
+
+        - use_df:
+            key: std_qplus_dc
+            dataset_cate: std
+            columns: [dc_id, dc_name]
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            how: left
+            on: dc_id      
+            drop_stash: true
+
+   # 商圈单成本异常值
+    - name: monitor_std_dc_order_cost_outlier
+      sync_result: true
+      cook:
+        - use_df:
+            key: mt_dc_cost_t2
+            columns: [dc_id, 单成本]
+        - add_cols:
+            - 来源: 'mt_dc_cost_t2'
+
+        - add_cols: 
+            - 单成本_异常: 0
+        - df_set_column_val_if:
+            column: 单成本_异常
+            condition: '[单成本] > @p1 '
+            params: 
+                p1: 10
+            val: 1
+            else_val: 0
+        - df_fillna:
+            columns: [单成本_异常]
+            value: 0
+        - stash_push_df: []
+
+
+        - use_df:
+            key: ele_dc_cost_t2 
+            columns: [dc_id, 单成本]
+        - add_cols:
+            - 来源: 'ele_dc_cost_t2'
+
+
+        - add_cols: 
+            - 单成本_异常: 0
+        - df_set_column_val_if:
+            column: 单成本_异常
+            condition: '[单成本] > @p1'
+            params: 
+                p1: 10
+            val: 1
+            else_val: 0
+        - df_fillna:
+            columns: [单成本_异常]
+            value: 0
+        - stash_push_df: []
+
+        - stash_concat_df: []
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id, dc_name]
+        - stash_push_df: []
+
+        - stash_join_df: 
+            on: dc_id
+            how: left
+            # fillna: 0
+            drop_stash: true
+
+    # 汇总输入监控结果
+    - name: monitor_std_input
+      sync_result: true
+      cook: 
+        - use_df:
+                key: monitor_std_input_dc_order_num
+                columns: [dc_id, 完成单量_异常, 来源]
+                rename:
+                    来源: 完成单量_来源
+        - stash_push_df: []
+
+        - use_df: 
+            key: monitor_std_input_dc_revenue_cost
+            columns: [dc_id, dc_name, 基础收入_异常, 来源]
+            rename:
+                来源: 基础收入_来源
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - stash_push_df: []
+
+        - use_df:
+            key: monitor_std_dc_order_cost_outlier
+            columns: [dc_id, dc_name, 单成本_异常, 来源]
+            rename: 
+                来源: 单成本_来源
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - df_eval:
+            - | 
+                [异常汇总] =  [完成单量_异常] + [基础收入_异常] + [单成本_异常]
+
+   # 输出最终结果
+    - name: monitor_std_data
+      sync_result: true
+      cook:
+        - use_df:
+            key: monitor_std_output 
+            rename:
+                完成单量_异常: 输出_完成单量_异常
+                基础收入_异常: 输出_基础收入_异常
+                完成单量_来源: 输出_完成单量_来源
+                基础收入_来源: 输出_基础收入_来源
+                异常汇总: 输出_异常汇总
+        - stash_push_df: []
+
+        - use_df:
+            key: monitor_std_input 
+            rename:
+                完成单量_异常: 输入_完成单量_异常
+                基础收入_异常: 输入_基础收入_异常
+                完成单量_来源: 输入_完成单量_来源
+                基础收入_来源: 输入_基础收入_来源
+                异常汇总: 输入_异常汇总
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+
+        # - df_dropna:
+        #     subset: [输入_完成单量_异常, 输入_基础收入_异常, 输出_完成单量_异常, 输出_基础收入_异常, 骑手成本_异常, 单成本_异常]
+        #     how: all
+        - run_py:
+            - |
+                df = to_df(df)
+                subset=[u'输入_完成单量_异常', u'输入_基础收入_异常', u'输出_完成单量_异常', u'输出_基础收入_异常', u'骑手成本_异常', u'单成本_异常']
+                df = df.dropna(subset=subset, how='all')
+                df = to_dd(df)
+                result = df
+        - df_eval: 
+            - |
+                [异常汇总] = [输出_异常汇总] + [输入_异常汇总]
+        - fetch_cols:
+            columns: [dc_id, dc_name, 异常汇总, 输出_完成单量_异常, 输出_完成单量_来源, 输出_基础收入_异常, 输出_基础收入_来源, 骑手成本_异常, 骑手成本_来源, 输入_完成单量_异常, 输入_完成单量_来源, 单成本_异常, 单成本_来源]

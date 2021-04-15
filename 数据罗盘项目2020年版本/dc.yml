@@ -1,0 +1,2276 @@
+
+compass_knight_form_snap_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+
+    # 商圈基础信息表
+    - std_qplus_dc
+
+    # 团队关系表
+    - std_qplus_team_map
+
+    # 团队表
+    - std_qplus_team
+
+    # 商圈新财报数据
+    - cost_revenue_dc_agg_dc
+
+    # ELEM商圈T+2运营质量
+    - ele_dc_start_level_by_daily_t2
+
+    # 商圈T+2运营质量
+    - mt_dc_start_level_by_daily_t2
+
+    # MT骑手成本数据
+    - mt_cost_knight_by_daily_t2
+
+    # ELE骑手成本数据
+    - ele_cost_knight_by_daily_t2
+
+    # 美团 T+2 收入数据
+    - mt_teams_basic_lable_by_daily_t2
+
+    # ele T+2 收入数据
+    - ele_teams_basic_lable_by_daily_t2
+
+    # 骑手数据
+    - compass_knight_label_chain
+
+  play:
+    # 得到本月总天数和当前天数
+    - name: compass_current_total_days
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_teams_basic_lable_by_daily_t2
+            columns: [当月总天数,订单天数]
+            rename:
+              订单天数: 当前天数
+        - set_meta_month_column:
+            - month
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df.groupby(u'month').agg(lambda x: x.mode()).reset_index()
+                result = df
+
+    # 将所有商圈进行保存，供下面无效商圈数据做筛选
+    - name: compass_dc_label_mt_all_dc
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_teams_basic_lable_by_daily_t2
+            columns: [dc_id,结算单量,当月总天数,当月预估总结算单量, 订单天数, 收入小计, 评星奖惩总额, 餐损赔付, 固定惩罚, 履约罚单扣款, 配送服务2_0违规扣款,履约扣罚_调账奖惩,骑手关怀计划出资,活动预付款扣减,骑手活动扣罚款_调账奖惩,其他常态扣罚_调账奖惩,其他非常态扣罚_调账奖惩]
+            rename:
+                收入小计: 基础收入
+                评星奖惩总额: kpi
+                配送服务2_0违规扣款: 配送服务违规扣款_2_0
+#        - df_select:
+#            - '[订单天数] != @p1'
+#            - p1: 0
+        - stash_push_df: []
+        # 新增商圈基础信息表
+        - use_df:
+            key: std_qplus_dc
+            columns: [vendor_dc_id,dc_id,dc_name,platform_code,city_code,supplier_id,label_name,knight_qty]
+            rename:
+                vendor_dc_id: 站点ID
+                knight_qty: 骑手人数
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: meituan
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: cost_revenue_dc_agg_dc
+            columns: [dc_id,assets_income,'6100101','6100102','41003','41005','41006','41015','41016','41017','41019',knight_wages,knight_safeguard,knight_welfare,outside_business_income]
+        - df_eval:
+            - |
+                [商圈成本] = ([assets_income] - [6100101] - [6100102])/100
+                [骑士保障] = [knight_safeguard]/100
+                [骑士福利] = [knight_welfare]/100
+                [营业外收入] = [outside_business_income]/100
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        # - df_reset_index: []
+
+
+        - df_fillna:
+            columns: [结算单量,基础收入,kpi,餐损赔付,固定惩罚,履约罚单扣款,配送服务违规扣款_2_0,履约扣罚_调账奖惩,骑手关怀计划出资,活动预付款扣减,骑手活动扣罚款_调账奖惩,其他常态扣罚_调账奖惩,其他非常态扣罚_调账奖惩,'41003','41005','41006','41015','41016','41017','41019']
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: mt_dc_start_level_by_daily_t2
+            columns: [dc_id,质量星级]
+            rename:
+                质量星级: 运营质量
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+
+        # 获取骑手成本
+        - stash_push_df: []
+        - use_df:
+            key: mt_cost_knight_by_daily_t2
+            columns: [dc_id,商圈骑手成本]
+            rename:
+                商圈骑手成本: 骑手成本
+
+        - df_not_nan_inf:
+            column: 骑手成本
+
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: 骑手成本
+        - df_reset_index: []
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - df_fillna:
+            columns: [骑手成本]
+            value: 0.0
+
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_knight_label_chain
+            columns: [dc_id,有单天数,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,荣誉骑手数,有单骑手数]
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [有单天数,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,荣誉骑手数,有单骑手数]
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - df_fillna:
+            columns: [有单天数,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,荣誉骑手数,有单骑手数,当月预估总结算单量]
+            value: 0.0
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'订单天数'].isnull(), u'订单天数'] =  df[u'当月总天数'].max()
+                df.loc[df.loc[:,u'订单天数']==0, u'订单天数'] =  df[u'当月总天数'].max()
+                df.loc[df.loc[:,u'订单天数']>df[u'当月总天数'].max(), u'订单天数'] =  df[u'当月总天数'].max()
+                df[u'当月总天数'] =  df[u'当月总天数'].max()
+                result = df
+
+
+        # 计算二级指标
+        - df_eval:
+            - |
+                [荣誉比较得分] = [荣誉比较得分]/[有单骑手数]
+                [完成单量] = [结算单量]
+                [骑士工资] = [骑手成本]
+                [扣罚] = [餐损赔付] + [固定惩罚] - [履约罚单扣款] + [配送服务违规扣款_2_0]+[履约扣罚_调账奖惩]+[骑手关怀计划出资]+[活动预付款扣减]+[骑手活动扣罚款_调账奖惩]+[其他常态扣罚_调账奖惩]+[其他非常态扣罚_调账奖惩]
+                [日均单量] = [结算单量] / [订单天数]
+                [平台政策收入] = ([41003] + [41005] + [41006] + [41015] + [41016])/100
+                [强分摊收入] = ([41017] + [41019])/100
+                [主营业务收入] = [基础收入] + [kpi] + [扣罚] + [平台政策收入] + [强分摊收入]
+                [收入] = [主营业务收入] + [营业外收入]
+                [单均基础收入] = [基础收入] / [结算单量]
+                [单均kpi] = [kpi] / [结算单量]
+                [单均扣罚] = [扣罚] / [结算单量]
+                [资产商圈利润] = ([主营业务收入]-[商圈成本]-[骑手成本])/[订单天数] * [当月总天数]
+                [资产商圈收入] = [主营业务收入]/[订单天数] * [当月总天数]
+                [资产商圈利润率] = [资产商圈利润]/[资产商圈收入]
+                [商圈总成本] = [骑手成本] + [商圈成本]
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'订单天数']==0, u'日均单量'] =  0
+                df.loc[df.loc[:,u'资产商圈收入'] < 0,u'资产商圈利润率'] = np.nan
+                result = df
+
+
+
+
+    - name: compass_dc_label_mt_base
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_mt_all_dc
+        # 结算单量、收入（主营业务收入）、成本（骑士成本：6100101、6100102、3100101、3100401、3100201、3120101），3项任意一项不为0时定义为参与排名商圈
+        - df_select:
+            - '[商圈总成本] != @p1 | [主营业务收入] != @p1 | [结算单量] != @p1'
+            - p1: 0
+
+
+
+
+
+        # 增加各项指标排名字段  <因扣罚字段为负值，所以依然使用从大到小正排>
+        - df_rank:
+            rank_cols: [日均单量, 单均基础收入, 单均kpi, 单均扣罚]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - df_rank:
+            rank_cols: [kpi]
+            ascending: False
+        - df_rank:
+            rank_cols: [扣罚]
+            ascending: False
+
+
+        # 增加各项指标排名百分比
+        - df_rank:
+            rank_cols: [日均单量, 单均基础收入, 单均kpi, 单均扣罚]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [kpi]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [扣罚]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+        # 增加各项指标击败百分比
+
+        - df_eval:
+            - |
+                [单均基础收入_DEFEAT_PCT] = 1 - [单均基础收入_RANK_PCT]
+                [日均单量_DEFEAT_PCT] = 1 - [日均单量_RANK_PCT]
+                [单均kpi_DEFEAT_PCT] = 1 - [单均kpi_RANK_PCT]
+                [单均扣罚_DEFEAT_PCT] = 1 - [单均扣罚_RANK_PCT]
+
+        - df_set_column_val_if:
+            column: 提升KPI
+            condition: '[单均kpi_RANK_PCT]>=@t1'
+            params:
+                t1: 0.6
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 减少扣罚
+            condition: '[单均扣罚_RANK_PCT]>=@t1'
+            params:
+                t1: 0.6
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 提升质量
+            condition: "[运营质量] == @t1 | [运营质量] == @t2 "
+            params:
+                t1: 1星
+                t2: 2星
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 继续保持
+            condition: '[提升KPI]==@t1 & [减少扣罚]==@t1 & [提升质量]==@t1'
+            params:
+                t1: 0
+            val: 1
+            else_val: 0
+
+
+
+    # 处理美团外卖dc中间表
+    - name: compass_dc_label_mt_platform_median
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_mt_base
+
+        - run_py:
+            - |
+                df = df[df[u'label_name'].isin([u'平台']) & ~df[u'运营质量'].isnull()]
+                result = df
+
+        - add_cols:
+            - dc_type: 有质量
+        # 日均单量标签
+        - df_set_column_val_if:
+            column: 日均单量_大
+            condition: '[日均单量]>=@t1'
+            params:
+                t1: 1500
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 日均单量_中
+            condition: '[日均单量]>@t1 & [日均单量]<@t2'
+            params:
+                t1: 800
+                t2: 1500
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 日均单量_小
+            condition: '[日均单量]<=@t1'
+            params:
+                t1: 800
+            val: 1
+            else_val: 0
+
+        # 星级标签
+        - df_set_column_val_if:
+            column: 星级_好
+            condition: '[运营质量] == @t1'
+            params:
+                t1: 3星
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 星级_差
+            condition: '[运营质量] != @t1'
+            params:
+                t1: 3星
+            val: 1
+            else_val: 0
+
+        # 资产商圈利润标签
+        - df_set_column_val_if:
+            column: 资产商圈利润_大体量
+            condition: '[资产商圈利润]>=@t1'
+            params:
+                t1: 150000
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润_中体量
+            condition: '[资产商圈利润]>=@t1'
+            params:
+                t1: 80000
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润_小体量
+            condition: '[资产商圈利润]>=@t1'
+            params:
+                t1: 30000
+            val: 1
+            else_val: 0
+
+        # 资产商圈利润率标签
+        - df_set_column_val_if:
+            column: 资产商圈利润率_大体量
+            condition: '[资产商圈利润率]>=@t1'
+            params:
+                t1: 0.2
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润率_中体量
+            condition: '[资产商圈利润率]>=@t1'
+            params:
+                t1: 0.18
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润率_小体量
+            condition: '[资产商圈利润率]>=@t1 | [资产商圈利润率]==@t2'
+            params:
+                t1: 0.15
+                t2: nan
+            val: 1
+            else_val: 0
+
+
+    # 美团外卖dc结果
+    - name: compass_dc_label_mt_platform
+      sync_result: true
+      cooks:
+
+        # 打难度标签
+        - use_df:
+            key: compass_dc_label_mt_platform_median
+        - df_select:
+            - '[日均单量_大] == 1'
+        - df_set_column_val_if:
+            column: 难度
+            condition: '[资产商圈利润_大体量] == @t1 & [资产商圈利润率_大体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_mt_platform_median
+        - df_select:
+            - '[日均单量_中] == 1'
+        - df_set_column_val_if:
+            column: 难度
+            condition: '[资产商圈利润_中体量] == @t1 & [资产商圈利润率_中体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_mt_platform_median
+        - df_select:
+            - '[日均单量_小] == 1'
+        - df_set_column_val_if:
+            column: 难度
+            condition: '[资产商圈利润_小体量] == @t1 & [资产商圈利润率_小体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+        # 打十二生肖标签
+        - df_set_column_val_if:
+            column: 龙
+            condition: '[日均单量_大]== @t1 & [星级_好] == @t1 & [难度] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 马
+            condition: '[日均单量_大]== @t1 & [星级_好] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 牛
+            condition: '[日均单量_大]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 虎
+            condition: '[日均单量_大]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 猪
+            condition: '[日均单量_中]== @t1 & [星级_好] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 猴
+            condition: '[日均单量_中]== @t1 & [星级_好] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 羊
+            condition: '[日均单量_中]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 狗
+            condition: '[日均单量_中]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 兔
+            condition: '[日均单量_小]== @t1 & [星级_好] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 鸡
+            condition: '[日均单量_小]== @t1 & [星级_好] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 蛇
+            condition: '[日均单量_小]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 鼠
+            condition: '[日均单量_小]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+            params:
+                t1: 1
+                t2: 0
+            val: 1
+            else_val: 0
+
+        # 计算十二生肖得分
+        - df_eval:
+            exp_str: '[十二生肖得分] = [龙]*12 + [马]*11 + [牛]*10 + [虎]*9 + [猪]*8 + [猴]*7 + [羊]*6 + [狗]*5 + [兔]*4 + [鸡]*3 + [蛇]*2 + [鼠]*1'
+
+
+    # 美团非外卖dc中间结果
+    - name: compass_dc_label_mt_non_platform_median
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_mt_base
+
+        - run_py:
+            - |
+                df = df[~df[u'label_name'].isin([u'平台']) | df[u'运营质量'].isnull()]
+                result = df
+
+        - add_cols:
+            - dc_type: 无质量
+
+        # 日均单量标签
+        - df_set_column_val_if:
+            column: 日均单量_大
+            condition: '[日均单量]>=@t1'
+            params:
+                t1: 1500
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 日均单量_中
+            condition: '[日均单量]>@t1 & [日均单量]<@t2'
+            params:
+                t1: 800
+                t2: 1500
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 日均单量_小
+            condition: '[日均单量]<=@t1'
+            params:
+                t1: 800
+            val: 1
+            else_val: 0
+
+        - add_cols:
+            -   星级_好: 0
+                星级_差: 0
+
+
+        # 资产商圈利润标签
+        - df_set_column_val_if:
+            column: 资产商圈利润_大体量
+            condition: '[资产商圈利润]>=@t1'
+            params:
+                t1: 150000
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润_中体量
+            condition: '[资产商圈利润]>=@t1'
+            params:
+                t1: 80000
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润_小体量
+            condition: '[资产商圈利润]>=@t1'
+            params:
+                t1: 30000
+            val: 1
+            else_val: 0
+        # 资产商圈利润率标签
+        - df_set_column_val_if:
+            column: 资产商圈利润率_大体量
+            condition: '[资产商圈利润率]>=@t1'
+            params:
+                t1: 0.2
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润率_中体量
+            condition: '[资产商圈利润率]>=@t1'
+            params:
+                t1: 0.18
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润率_小体量
+            condition: '[资产商圈利润率]>=@t1 | [资产商圈利润率]==@t2'
+            params:
+                t1: 0.15
+                t2: nan
+            val: 1
+            else_val: 0
+
+
+    # 美团非外卖dc中间结果2
+    - name: compass_dc_label_mt_non_platform_median2
+      sync_result: true
+      cooks:
+        # 打利润标签
+        - use_df:
+            key: compass_dc_label_mt_non_platform_median
+        - df_select:
+            - '[日均单量_大] == 1'
+        - df_set_column_val_if:
+            column: 利润
+            condition: '[资产商圈利润_大体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_mt_non_platform_median
+        - df_select:
+            - '[日均单量_中] == 1'
+        - df_set_column_val_if:
+            column: 利润
+            condition: '[资产商圈利润_中体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_mt_non_platform_median
+        - df_select:
+            - '[日均单量_小] == 1'
+        - df_set_column_val_if:
+            column: 利润
+            condition: '[资产商圈利润_小体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+
+        - stash_concat_df:
+            drop_stash: True
+
+
+    # 美团非外卖dc结果
+    - name: compass_dc_label_mt_non_platform
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_mt_non_platform_median2
+        - df_select:
+            - '[日均单量_大] == 1'
+        - df_set_column_val_if:
+            column: 利润率
+            condition: '[资产商圈利润率_大体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_mt_non_platform_median2
+        - df_select:
+            - '[日均单量_中] == 1'
+        - df_set_column_val_if:
+            column: 利润率
+            condition: '[资产商圈利润率_中体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_mt_non_platform_median2
+        - df_select:
+            - '[日均单量_小] == 1'
+        - df_set_column_val_if:
+            column: 利润率
+            condition: '[资产商圈利润率_小体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+        # 打生肖标签
+        - df_set_column_val_if:
+            column: 龙
+            condition: '[日均单量_大]== @t1 & [利润] == @t1 & [利润率] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 马
+            condition: '[日均单量_大]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 牛
+            condition: '[日均单量_大]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 虎
+            condition: '[日均单量_大]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 猪
+            condition: '[日均单量_中]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 猴
+            condition: '[日均单量_中]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 羊
+            condition: '[日均单量_中]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 狗
+            condition: '[日均单量_中]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 兔
+            condition: '[日均单量_小]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 鸡
+            condition: '[日均单量_小]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 蛇
+            condition: '[日均单量_小]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 鼠
+            condition: '[日均单量_小]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 0
+            val: 1
+            else_val: 0
+
+        # 计算十二生肖得分
+        - df_eval:
+            exp_str: '[十二生肖得分] = [龙]*12 + [马]*11 + [牛]*10 + [虎]*9 + [猪]*8 + [猴]*7 + [羊]*6 + [狗]*5 + [兔]*4 + [鸡]*3 + [蛇]*2 + [鼠]*1'
+
+
+    # 处理饿了么收入形成dc基础表
+    - name: compass_dc_label_ele_all_dc
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_teams_basic_lable_by_daily_t2
+            columns: [dc_id,当月总天数,订单天数,结算单量,基础配送费,城市基础价,商圈加价,其他补贴金额,申诉应收金额,其他基础收入_手工,违规扣款,骑手费用扣款,其他扣款_手工,上KPI收入,下KPI收入]
+
+#        - df_select:
+#            - '[订单天数] != @p1'
+#            - p1: 0
+
+        - stash_push_df: []
+        # 新增商圈基础信息表
+        - use_df:
+            key: std_qplus_dc
+            columns: [vendor_dc_id,dc_id,dc_name,platform_code,city_code,supplier_id,label_name,knight_qty]
+            rename:
+                vendor_dc_id: 站点ID
+                knight_qty: 骑手人数
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: elem
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - use_df:
+            key: cost_revenue_dc_agg_dc
+            columns: [dc_id,assets_income,'6100101','6100102','41003','41005','41006','41015','41016','41017','41019',knight_wages,knight_safeguard,knight_welfare,outside_business_income]
+        - df_eval:
+            - |
+                [商圈成本] = ([assets_income] - [6100101] - [6100102])/100
+                [骑士保障] = [knight_safeguard]/100
+                [骑士福利] = [knight_welfare]/100
+                [营业外收入] = [outside_business_income]/100
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+        - df_fillna:
+            columns: [结算单量,基础配送费,城市基础价,商圈加价,其他补贴金额,申诉应收金额,其他基础收入_手工,违规扣款,骑手费用扣款,其他扣款_手工,上KPI收入,下KPI收入,'41002','41013','41014','41017','41019']
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: ele_dc_start_level_by_daily_t2
+            columns: [dc_id,质量星级]
+            rename:
+                质量星级: 运营质量
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+        # 获取骑手成本
+        - stash_push_df: []
+        - use_df:
+            key: ele_cost_knight_by_daily_t2
+            columns: [dc_id,商圈骑手成本]
+            rename:
+                商圈骑手成本: 骑手成本
+
+        - df_not_nan_inf:
+            column: 骑手成本
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: 骑手成本
+        - df_reset_index: []
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - df_fillna:
+            columns: [骑手成本]
+            value: 0.0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_knight_label_chain
+            columns: [dc_id,有单天数,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,荣誉骑手数,有单骑手数]
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [有单天数,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,荣誉骑手数,有单骑手数]
+        - df_reset_index: []
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - df_fillna:
+            columns: [有单天数,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,荣誉骑手数,有单骑手数]
+            value: 0.0
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'订单天数'].isnull(),u'订单天数'] =  df[u'当月总天数'].max()
+                df.loc[df.loc[:,u'订单天数']==0, u'订单天数'] =  df[u'当月总天数'].max()
+                df.loc[df.loc[:,u'订单天数']>df[u'当月总天数'].max(),u'订单天数'] =  df[u'当月总天数'].max()
+                df[u'当月总天数'] =  df[u'当月总天数'].max()
+                result = df
+        # # -------- 二级计算 --------
+        - df_eval:
+            - |
+                [荣誉比较得分] = [荣誉比较得分]/[有单骑手数]
+                [完成单量] = [结算单量]
+                [骑士工资] = [骑手成本]
+                [kpi] = [上KPI收入] + [下KPI收入]
+                [日均单量] = [结算单量] / [订单天数]
+                [基础收入] = [基础配送费] + [城市基础价]+ [商圈加价] + [其他补贴金额] + [申诉应收金额] + [其他基础收入_手工]
+                [扣罚] = [违规扣款]+ [骑手费用扣款] + [其他扣款_手工]
+                [平台政策收入] = ([41003] + [41005] + [41006] + [41015] + [41016])/100
+                [强分摊收入] = ([41017] + [41019])/100
+                [主营业务收入] = [基础收入] + [kpi] + [扣罚] + [平台政策收入] + [强分摊收入]
+                [收入] = [主营业务收入] + [营业外收入]
+                [单均基础收入] = [基础收入] / [结算单量]
+                [单均kpi] = [kpi] / [结算单量]
+                [单均扣罚] = [扣罚] / [结算单量]
+                [资产商圈利润] = ([主营业务收入] - [商圈成本] - [骑手成本])/[订单天数] * [当月总天数]
+                [资产商圈收入] = [主营业务收入]/[订单天数] * [当月总天数]
+                [资产商圈利润率] = [资产商圈利润]/[资产商圈收入]
+                [商圈总成本] = [骑手成本] + [商圈成本]
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'订单天数']==0, u'日均单量'] =  0
+                df.loc[df.loc[:,u'资产商圈收入'] < 0,u'资产商圈利润率'] = np.nan
+                result = df
+
+        # 将所有商圈进行保存，供下面无效商圈数据做筛选
+#        - push_dataset:
+#            key: compass_dc_label_ele_all_dc
+
+
+    - name: compass_dc_label_ele_base
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_ele_all_dc
+
+        # 结算单量、收入（主营业务收入）、成本（骑士成本：6100101、6100102、3100101、3100401、3100201、3120101），3项任意一项不为0时定义为参与排名商圈
+        - df_select:
+            - '[商圈总成本] != @p1 | [主营业务收入] != @p1 | [结算单量] != @p1'
+            - p1: 0
+
+
+
+
+        # 增加各项指标排名字段  <因扣罚字段为负值，所以依然使用从大到小正排>
+        # # 增加各项指标排名字段
+        - df_rank:
+            rank_cols: [日均单量, 单均基础收入, 单均kpi, 单均扣罚]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - df_rank:
+            rank_cols: [kpi]
+            ascending: False
+        - df_rank:
+            rank_cols: [扣罚]
+            ascending: False
+
+
+        # # 增加各项指标排名百分比
+        - df_rank:
+            rank_cols: [日均单量, 单均基础收入, 单均kpi, 单均扣罚]
+            ascending: False
+            pct: True
+            exclude_na: False
+            na_option: bottom
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [kpi]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [扣罚]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+        # 增加各项指标击败百分比
+        - df_eval:
+            - |
+                [单均基础收入_DEFEAT_PCT] = 1 - [单均基础收入_RANK_PCT]
+                [日均单量_DEFEAT_PCT] = 1 - [日均单量_RANK_PCT]
+                [单均kpi_DEFEAT_PCT] = 1 - [单均kpi_RANK_PCT]
+                [单均扣罚_DEFEAT_PCT] = 1 - [单均扣罚_RANK_PCT]
+
+        # # # 商圈提示语
+        - df_set_column_val_if:
+            column: 提升KPI
+            condition: '[单均kpi_RANK_PCT]>=@t1'
+            params:
+                t1: 0.6
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 减少扣罚
+            condition: '[单均扣罚_RANK_PCT]>=@t1'
+            params:
+                t1: 0.6
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 提升质量
+            condition: "[运营质量] == @t1 | [运营质量] == @t2 "
+            params:
+                t1: 1星
+                t2: 2星
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 继续保持
+            condition: '[提升KPI]==@t1 & [减少扣罚]==@t1 & [提升质量]==@t1'
+            params:
+                t1: 0
+            val: 1
+            else_val: 0
+
+
+#    # 饿了么外卖dc中间表
+#    - name: compass_dc_label_ele_platform_median
+#      sync_result: true
+#      cooks:
+#        - use_df:
+#            key: compass_dc_label_ele_base
+#
+#        - run_py:
+#            - |
+#                df = df[df[u'label_name'].isin([u'平台']) & ~df[u'运营质量'].isnull()]
+#                result = df
+#        - add_cols:
+#            - dc_type: 有质量
+#
+#        # 日均单量标签
+#        - df_set_column_val_if:
+#            column: 日均单量_大
+#            condition: '[日均单量]>=@t1'
+#            params:
+#                t1: 1000
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 日均单量_中
+#            condition: '[日均单量]>@t1 & [日均单量]<@t2'
+#            params:
+#                t1: 500
+#                t2: 1000
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 日均单量_小
+#            condition: '[日均单量]<=@t1'
+#            params:
+#                t1: 500
+#            val: 1
+#            else_val: 0
+#
+#
+#        # 星级标签
+#        - df_set_column_val_if:
+#            column: 星级_好
+#            condition: '[运营质量] == @t1'
+#            params:
+#                t1: 3星
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 星级_差
+#            condition: '[运营质量] != @t1'
+#            params:
+#                t1: 3星
+#            val: 1
+#            else_val: 0
+#
+#        # 资产商圈利润标签
+#        - df_set_column_val_if:
+#            column: 资产商圈利润_大体量
+#            condition: '[资产商圈利润]>=@t1'
+#            params:
+#                t1: 100000
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 资产商圈利润_中体量
+#            condition: '[资产商圈利润]>=@t1'
+#            params:
+#                t1: 50000
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 资产商圈利润_小体量
+#            condition: '[资产商圈利润]>=@t1'
+#            params:
+#                t1: 20000
+#            val: 1
+#            else_val: 0
+#
+#        # 资产商圈利润率标签
+#        - df_set_column_val_if:
+#            column: 资产商圈利润率_大体量
+#            condition: '[资产商圈利润率]>=@t1'
+#            params:
+#                t1: 0.2
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 资产商圈利润率_中体量
+#            condition: '[资产商圈利润率]>=@t1'
+#            params:
+#                t1: 0.18
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 资产商圈利润率_小体量
+#            condition: '[资产商圈利润率]>=@t1'
+#            params:
+#                t1: 0.15
+#            val: 1
+#            else_val: 0
+#
+#
+#    # 饿了么外卖dc结果
+#    - name: compass_dc_label_ele_platform
+#      sync_result: true
+#      cooks:
+#        # 打难度标签
+#        - use_df:
+#            key: compass_dc_label_ele_platform_median
+#        - df_select:
+#            - '[日均单量_大] == 1'
+#        - df_set_column_val_if:
+#            column: 难度
+#            condition: '[资产商圈利润_大体量] == @t1 & [资产商圈利润率_大体量] == @t1'
+#            params:
+#                t1: 1
+#            val: 1
+#            else_val: 0
+#        - stash_push_df: []
+#
+#        - use_df:
+#            key: compass_dc_label_ele_platform_median
+#        - df_select:
+#            - '[日均单量_中] == 1'
+#        - df_set_column_val_if:
+#            column: 难度
+#            condition: '[资产商圈利润_中体量] == @t1 & [资产商圈利润率_中体量] == @t1'
+#            params:
+#                t1: 1
+#            val: 1
+#            else_val: 0
+#        - stash_push_df: []
+#
+#        - use_df:
+#            key: compass_dc_label_ele_platform_median
+#        - df_select:
+#            - '[日均单量_小] == 1'
+#        - df_set_column_val_if:
+#            column: 难度
+#            condition: '[资产商圈利润_小体量] == @t1 & [资产商圈利润率_小体量] == @t1'
+#            params:
+#                t1: 1
+#            val: 1
+#            else_val: 0
+#        - stash_push_df: []
+#
+#        - stash_concat_df:
+#            drop_stash: True
+#
+#        - df_set_column_val_if:
+#            column: 龙
+#            condition: '[日均单量_大]== @t1 & [星级_好] == @t1 & [难度] == @t1'
+#            params:
+#                t1: 1
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 马
+#            condition: '[日均单量_大]== @t1 & [星级_好] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 0
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 牛
+#            condition: '[日均单量_大]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 1
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 虎
+#            condition: '[日均单量_大]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 0
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 猪
+#            condition: '[日均单量_中]== @t1 & [星级_好] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 1
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 猴
+#            condition: '[日均单量_中]== @t1 & [星级_好] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 0
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 羊
+#            condition: '[日均单量_中]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 1
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 狗
+#            condition: '[日均单量_中]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 0
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 兔
+#            condition: '[日均单量_小]== @t1 & [星级_好] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 1
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 鸡
+#            condition: '[日均单量_小]== @t1 & [星级_好] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 0
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 蛇
+#            condition: '[日均单量_小]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 1
+#            val: 1
+#            else_val: 0
+#
+#        - df_set_column_val_if:
+#            column: 鼠
+#            condition: '[日均单量_小]== @t1 & [星级_差] == @t1 & [难度] == @t2'
+#            params:
+#                t1: 1
+#                t2: 0
+#            val: 1
+#            else_val: 0
+#
+#        # 计算十二生肖得分
+#        - df_eval:
+#            exp_str: '[十二生肖得分] = [龙]*12 + [马]*11 + [牛]*10 + [虎]*9 + [猪]*8 + [猴]*7 + [羊]*6 + [狗]*5 + [兔]*4 + [鸡]*3 + [蛇]*2 + [鼠]*1'
+#
+
+    # 饿了么非外卖dc中间表
+    - name: compass_dc_label_ele_non_platform_median
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_ele_base
+
+#        - run_py:
+#            - |
+#                df = df[~df[u'label_name'].isin([u'平台']) | df[u'运营质量'].isnull()]
+#                result = df
+
+        - add_cols:
+            - dc_type: 无质量
+        # # 日均单量标签
+        - df_set_column_val_if:
+            column: 日均单量_大
+            condition: '[日均单量]>=@t1'
+            params:
+                t1: 1000
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 日均单量_中
+            condition: '[日均单量]>@t1 & [日均单量]<@t2'
+            params:
+                t1: 500
+                t2: 1000
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 日均单量_小
+            condition: '[日均单量]<=@t1'
+            params:
+                t1: 500
+            val: 1
+            else_val: 0
+
+        - add_cols:
+            -   星级_好: 0
+                星级_差: 0
+
+
+        # 资产商圈利润标签
+        - df_set_column_val_if:
+            column: 资产商圈利润_大体量
+            condition: '[资产商圈利润]>=@t1'
+            params:
+                t1: 100000
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润_中体量
+            condition: '[资产商圈利润]>=@t1'
+            params:
+                t1: 50000
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润_小体量
+            condition: '[资产商圈利润]>=@t1'
+            params:
+                t1: 20000
+            val: 1
+            else_val: 0
+        # 资产商圈利润率标签
+        - df_set_column_val_if:
+            column: 资产商圈利润率_大体量
+            condition: '[资产商圈利润率]>=@t1'
+            params:
+                t1: 0.2
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润率_中体量
+            condition: '[资产商圈利润率]>=@t1'
+            params:
+                t1: 0.18
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 资产商圈利润率_小体量
+            condition: '[资产商圈利润率]>=@t1 | [资产商圈利润率]==@t2'
+            params:
+                t1: 0.15
+                t2: nan
+            val: 1
+            else_val: 0
+
+
+
+    # 饿了么非外卖dc中间表2
+    - name: compass_dc_label_ele_non_platform_median2
+      sync_result: true
+      cooks:
+        # 打利润标签
+        - use_df:
+            key: compass_dc_label_ele_non_platform_median
+        - df_select:
+            - '[日均单量_大] == 1'
+        - df_set_column_val_if:
+            column: 利润
+            condition: '[资产商圈利润_大体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_ele_non_platform_median
+        - df_select:
+            - '[日均单量_中] == 1'
+        - df_set_column_val_if:
+            column: 利润
+            condition: '[资产商圈利润_中体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_ele_non_platform_median
+        - df_select:
+            - '[日均单量_小] == 1'
+        - df_set_column_val_if:
+            column: 利润
+            condition: '[资产商圈利润_小体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+
+
+    # 饿了么非外卖dc结果表
+    - name: compass_dc_label_ele_non_platform
+      sync_result: true
+      cooks:
+        # 打利润率标签
+        - use_df:
+            key: compass_dc_label_ele_non_platform_median2
+        - df_select:
+            - '[日均单量_大] == 1'
+        - df_set_column_val_if:
+            column: 利润率
+            condition: '[资产商圈利润率_大体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_ele_non_platform_median2
+        - df_select:
+            - '[日均单量_中] == 1'
+        - df_set_column_val_if:
+            column: 利润率
+            condition: '[资产商圈利润率_中体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_ele_non_platform_median2
+        - df_select:
+            - '[日均单量_小] == 1'
+        - df_set_column_val_if:
+            column: 利润率
+            condition: '[资产商圈利润率_小体量] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+        # 打生肖标签
+        - df_set_column_val_if:
+            column: 龙
+            condition: '[日均单量_大]== @t1 & [利润] == @t1 & [利润率] == @t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 马
+            condition: '[日均单量_大]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 牛
+            condition: '[日均单量_大]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 虎
+            condition: '[日均单量_大]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 猪
+            condition: '[日均单量_中]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 猴
+            condition: '[日均单量_中]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 羊
+            condition: '[日均单量_中]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 狗
+            condition: '[日均单量_中]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 兔
+            condition: '[日均单量_小]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 鸡
+            condition: '[日均单量_小]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 1
+                t3: 0
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 蛇
+            condition: '[日均单量_小]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 鼠
+            condition: '[日均单量_小]== @t1 & [利润] == @t2 & [利润率] == @t3'
+            params:
+                t1: 1
+                t2: 0
+                t3: 0
+            val: 1
+            else_val: 0
+
+        # 计算十二生肖得分
+        - df_eval:
+            exp_str: '[十二生肖得分] = [龙]*12 + [马]*11 + [牛]*10 + [虎]*9 + [猪]*8 + [猴]*7 + [羊]*6 + [狗]*5 + [兔]*4 + [鸡]*3 + [蛇]*2 + [鼠]*1'
+
+
+
+    # 将美团、饿了么(外卖|非外卖)合并在一起，计算各种生肖总数
+    - name: compass_dc_label_total_zodiac
+      sync_result: true
+      cooks:
+
+        - use_df:
+            key: compass_dc_label_mt_platform
+            columns: [dc_id,商圈成本,结算单量,基础收入,kpi,运营质量,骑手成本,骑手人数,扣罚,日均单量,收入,单均基础收入,单均kpi,单均扣罚,资产商圈利润,资产商圈利润率,日均单量_RANK,单均基础收入_RANK,单均kpi_RANK,单均扣罚_RANK,日均单量_RANK_PCT,单均基础收入_RANK_PCT,单均kpi_RANK_PCT,单均扣罚_RANK_PCT,kpi_RANK_PCT,扣罚_RANK_PCT,单均基础收入_DEFEAT_PCT,日均单量_DEFEAT_PCT,单均kpi_DEFEAT_PCT,单均扣罚_DEFEAT_PCT,提升KPI,提升质量,减少扣罚,继续保持,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,十二生肖得分,kpi_RANK,扣罚_RANK,骑士工资,骑士保障,骑士福利,有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,商圈总成本,荣誉骑手数,有单骑手数,dc_type,营业外收入,主营业务收入]
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_mt_non_platform
+            columns: [dc_id,商圈成本,结算单量,基础收入,kpi,运营质量,骑手成本,骑手人数,扣罚,日均单量,收入,单均基础收入,单均kpi,单均扣罚,资产商圈利润,资产商圈利润率,日均单量_RANK,单均基础收入_RANK,单均kpi_RANK,单均扣罚_RANK,日均单量_RANK_PCT,单均基础收入_RANK_PCT,单均kpi_RANK_PCT,单均扣罚_RANK_PCT,kpi_RANK_PCT,扣罚_RANK_PCT,单均基础收入_DEFEAT_PCT,日均单量_DEFEAT_PCT,单均kpi_DEFEAT_PCT,单均扣罚_DEFEAT_PCT,提升KPI,提升质量,减少扣罚,继续保持,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,十二生肖得分,kpi_RANK,扣罚_RANK,骑士工资,骑士保障,骑士福利,有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,商圈总成本,荣誉骑手数,有单骑手数,dc_type,营业外收入,主营业务收入]
+        - stash_push_df: []
+
+#        - use_df:
+#            key: compass_dc_label_ele_platform
+#            columns: [站点ID,dc_id,商圈成本,结算单量,基础收入,kpi,运营质量,骑手成本,骑手人数,扣罚,日均单量,收入,单均基础收入,单均kpi,单均扣罚,资产商圈利润,资产商圈利润率,日均单量_RANK,单均基础收入_RANK,单均kpi_RANK,单均扣罚_RANK,日均单量_RANK_PCT,单均基础收入_RANK_PCT,单均kpi_RANK_PCT,单均扣罚_RANK_PCT,kpi_RANK_PCT,扣罚_RANK_PCT,单均基础收入_DEFEAT_PCT,日均单量_DEFEAT_PCT,单均kpi_DEFEAT_PCT,单均扣罚_DEFEAT_PCT,提升KPI,提升质量,减少扣罚,继续保持,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,十二生肖得分,kpi_RANK,扣罚_RANK,骑士工资,骑士保障,骑士福利,有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,商圈总成本,荣誉骑手数,有单骑手数,dc_type]
+#        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_ele_non_platform
+            columns: [dc_id,商圈成本,结算单量,基础收入,kpi,运营质量,骑手成本,骑手人数,扣罚,日均单量,收入,单均基础收入,单均kpi,单均扣罚,资产商圈利润,资产商圈利润率,日均单量_RANK,单均基础收入_RANK,单均kpi_RANK,单均扣罚_RANK,日均单量_RANK_PCT,单均基础收入_RANK_PCT,单均kpi_RANK_PCT,单均扣罚_RANK_PCT,kpi_RANK_PCT,扣罚_RANK_PCT,单均基础收入_DEFEAT_PCT,日均单量_DEFEAT_PCT,单均kpi_DEFEAT_PCT,单均扣罚_DEFEAT_PCT,提升KPI,提升质量,减少扣罚,继续保持,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,十二生肖得分,kpi_RANK,扣罚_RANK,骑士工资,骑士保障,骑士福利,有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,商圈总成本,荣誉骑手数,有单骑手数,dc_type,营业外收入,主营业务收入]
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+        - stash_push_df: []
+
+        - df_groupby:
+            by: 十二生肖得分
+        - df_count:
+            column: 十二生肖得分
+            rename: 此生肖总数
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: 十二生肖得分
+            how: right
+            drop_stash: true
+
+
+    # 进行生肖排序
+    - name: compass_dc_label_zodiac_rank
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 1'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 2'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 3'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 4'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 5'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 6'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 7'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 8'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 9'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 10'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 11'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_total_zodiac
+        - df_select:
+            - '[十二生肖得分] == 12'
+        - df_rank:
+            rank_cols: [资产商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+
+    # 计算商圈利润、利润率，增加团队关系
+    - name: compass_dc_label_add_relation
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_dc_label_zodiac_rank
+
+        - df_eval:
+            - |
+                [商圈利润] = [主营业务收入] - [商圈总成本]
+                [商圈利润率] = [商圈利润] / [主营业务收入]
+
+        - df_rank:
+            rank_cols: [商圈总成本,收入,主营业务收入,商圈利润,商圈利润率]
+            ascending: False
+            exclude_na: False
+            na_option: bottom
+
+
+        - df_rank:
+            rank_cols: [商圈总成本,收入,主营业务收入,商圈利润,商圈利润率]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+            exclude_na: False
+            na_option: bottom
+
+
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,owner_team_id,owner_team_name,coach_team_name,coach_team_id,theater_team_name,theater_team_id,business_team_name,business_team_id,division_team_name,division_team_id]
+        - drop_duplicates:
+            - [dc_id,owner_team_id,owner_team_name,coach_team_name,coach_team_id,theater_team_name,theater_team_id,business_team_name,business_team_id,division_team_name,division_team_id]
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id,dc_name,platform_code,city_code,city_name,supplier_id,supplier_name,label_name]
+        - drop_duplicates:
+            - [dc_id,dc_name,platform_code,city_code,city_name,supplier_id,supplier_name,label_name]
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+
+    # mt和elem所有不参与排名的商圈(展示列表)
+    - name: compass_dc_label_non_rank_dc
+      sync_result: true
+      cooks:
+        # 筛选美团不参与排名的商圈
+        - use_df:
+            key: compass_dc_label_mt_all_dc
+        - df_select:
+            - '[商圈总成本] == @p1 & [主营业务收入] == @p1 & [结算单量] == @p1'
+            - p1: 0
+
+        - fetch_cols:
+            columns: [dc_id, dc_name, supplier_id, city_code, 营业外收入, 主营业务收入, 结算单量, 骑手成本]
+        - df_fillna:
+            columns: [当月总天数,当月预估总结算单量,日均单量,单均基础收入,单均kpi,单均扣罚,资产商圈利润,资产商圈利润率]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id, city_name, supplier_name]
+            rename:
+              city_name: 城市
+              supplier_name: 主体
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id, owner_team_id, owner_team_name]
+            rename:
+              owner_team_id: 上级团队ID
+              owner_team_name: 上级团队
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+        - df_rename_columns:
+            - dc_id: 商圈ID
+              dc_name: 商圈名称
+              骑手成本: 骑士成本
+        - add_cols:
+            - 项目: 美团
+        - fetch_cols:
+            columns: [商圈名称, 商圈ID, 上级团队, 上级团队ID, 项目, 主体, 城市, 主营业务收入, 营业外收入, 结算单量, 骑士成本]
+
+        - push_dataset:
+            key: compass_dc_label_mt_invalid_dc
+
+
+        # 筛选饿了么不参与排名的商圈
+        - use_df:
+            key: compass_dc_label_ele_all_dc
+
+        - df_select:
+            - '[商圈总成本] == @p1 & [主营业务收入] == @p1 & [结算单量] == @p1'
+            - p1: 0
+
+        - fetch_cols:
+            columns: [dc_id, dc_name, supplier_id, city_code, 营业外收入, 主营业务收入, 结算单量, 骑手成本]
+        - df_fillna:
+            columns: [当月总天数,当月预估总结算单量,日均单量,单均基础收入,单均kpi,单均扣罚,资产商圈利润,资产商圈利润率]
+            value: 0.0
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id, city_name, supplier_name]
+            rename:
+              city_name: 城市
+              supplier_name: 主体
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id, owner_team_id, owner_team_name]
+            rename:
+              owner_team_id: 上级团队ID
+              owner_team_name: 上级团队
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+        - df_rename_columns:
+            - dc_id: 商圈ID
+              dc_name: 商圈名称
+              骑手成本: 骑士成本
+        - add_cols:
+            - 项目: 饿了么
+        - fetch_cols:
+            columns: [商圈名称, 商圈ID, 上级团队, 上级团队ID, 项目, 主体, 城市, 主营业务收入, 营业外收入, 结算单量, 骑士成本]
+
+        - push_dataset:
+            key: compass_dc_label_ele_invalid_dc
+
+        # 合并mt和elem所有不参与排名的商圈
+        - use_df:
+            key: compass_dc_label_ele_invalid_dc
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_mt_invalid_dc
+        - stash_push_df: []
+        - stash_concat_df:
+            drop_stash: True
+
+
+    # mt和elem所有不参与排名的商圈(参与商圈数据合并)
+    - name: compass_dc_label_non_rank_dc_add_relation
+      sync_result: true
+      cooks:
+        # 筛选不参与排名商圈进行合并，过滤掉无用字段
+        - use_df:
+            key: compass_dc_label_ele_all_dc
+        - df_select:
+            - '[商圈总成本] == @p1 & [主营业务收入] == @p1 & [结算单量] == @p1'
+            - p1: 0
+        - fetch_cols:
+            - [dc_id,商圈成本,结算单量,基础收入,kpi,运营质量,骑手成本,骑手人数,扣罚,日均单量,收入,单均基础收入,单均kpi,单均扣罚,资产商圈利润,资产商圈利润率,日均单量_RANK,单均基础收入_RANK,单均kpi_RANK,单均扣罚_RANK,日均单量_RANK_PCT,单均基础收入_RANK_PCT,单均kpi_RANK_PCT,单均扣罚_RANK_PCT,kpi_RANK_PCT,扣罚_RANK_PCT,单均基础收入_DEFEAT_PCT,日均单量_DEFEAT_PCT,单均kpi_DEFEAT_PCT,单均扣罚_DEFEAT_PCT,提升KPI,提升质量,减少扣罚,继续保持,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,十二生肖得分,kpi_RANK,扣罚_RANK,骑士工资,骑士保障,骑士福利,有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,商圈总成本,荣誉骑手数,有单骑手数,dc_type,营业外收入,主营业务收入,此生肖总数,资产商圈利润率_RANK,商圈利润,商圈利润率,商圈总成本_RANK,收入_RANK,主营业务收入_RANK,商圈利润_RANK,商圈利润率_RANK,商圈总成本_RANK_PCT,收入_RANK_PCT,主营业务收入_RANK_PCT,商圈利润_RANK_PCT,商圈利润率_RANK_PCT,上月十二生肖得分,生肖比较得分,参与排名商圈数量]
+        - df_fillna:
+            columns: [资产商圈利润]
+            value: 0.0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_mt_all_dc
+        - df_select:
+            - '[商圈总成本] == @p1 & [主营业务收入] == @p1 & [结算单量] == @p1'
+            - p1: 0
+        - fetch_cols:
+            - [dc_id,商圈成本,结算单量,基础收入,kpi,运营质量,骑手成本,骑手人数,扣罚,日均单量,收入,单均基础收入,单均kpi,单均扣罚,资产商圈利润,资产商圈利润率,日均单量_RANK,单均基础收入_RANK,单均kpi_RANK,单均扣罚_RANK,日均单量_RANK_PCT,单均基础收入_RANK_PCT,单均kpi_RANK_PCT,单均扣罚_RANK_PCT,kpi_RANK_PCT,扣罚_RANK_PCT,单均基础收入_DEFEAT_PCT,日均单量_DEFEAT_PCT,单均kpi_DEFEAT_PCT,单均扣罚_DEFEAT_PCT,提升KPI,提升质量,减少扣罚,继续保持,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,十二生肖得分,kpi_RANK,扣罚_RANK,骑士工资,骑士保障,骑士福利,有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,商圈总成本,荣誉骑手数,有单骑手数,dc_type,营业外收入,主营业务收入]
+        - df_fillna:
+            columns: [资产商圈利润]
+            value: 0.0
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+        # 增加团队关系和商务维度信息
+        - stash_push_df: []
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,owner_team_id,owner_team_name,coach_team_name,coach_team_id,theater_team_name,theater_team_id,business_team_name,business_team_id,division_team_name,division_team_id]
+        - drop_duplicates:
+            - [dc_id,owner_team_id,owner_team_name,coach_team_name,coach_team_id,theater_team_name,theater_team_id,business_team_name,business_team_id,division_team_name,division_team_id]
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_dc
+            columns: [dc_id,dc_name,platform_code,city_code,city_name,supplier_id,supplier_name,label_name]
+        - drop_duplicates:
+            - [dc_id,dc_name,platform_code,city_code,city_name,supplier_id,supplier_name,label_name]
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+        - add_cols:
+            - non_rank_dc: 1
+
+
+    # TODO: 需要确认商务维度统计时，是否去除未排名商圈
+    # 与上月的商圈结果做差值
+    - name: compass_dc_label_chain
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: compass_dc_label_add_relation
+            dataset_cate: std
+            columns: [dc_id, 十二生肖得分]
+            month_value: prev_month
+            ignore_null_error: true
+            empty_df_record:
+                dc_id: '-'
+                上月十二生肖得分: 0
+            rename:
+                十二生肖得分: 上月十二生肖得分
+
+        - stash_push_df: []
+        - use_df:
+            key: compass_dc_label_add_relation
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: [上月十二生肖得分]
+            value: 0.0
+
+        - df_eval:
+            exp_str: '[生肖比较得分] = [十二生肖得分] - [上月十二生肖得分]'
+
+        - drop_duplicates:
+            - [dc_id,dc_name,platform_code,city_code,city_name,supplier_id,supplier_name,label_name,owner_team_id,owner_team_name,coach_team_name,coach_team_id,theater_team_name,theater_team_id,business_team_name,business_team_id,division_team_name,division_team_id,十二生肖得分,此生肖总数,商圈成本,结算单量,基础收入,kpi,运营质量,骑手成本,骑手人数,扣罚,日均单量,收入,单均基础收入,单均kpi,单均扣罚,资产商圈利润,资产商圈利润率,日均单量_RANK,单均基础收入_RANK,单均kpi_RANK,单均扣罚_RANK,日均单量_RANK_PCT,单均基础收入_RANK_PCT,单均kpi_RANK_PCT,单均扣罚_RANK_PCT,kpi_RANK_PCT,扣罚_RANK_PCT,单均基础收入_DEFEAT_PCT,日均单量_DEFEAT_PCT,单均kpi_DEFEAT_PCT,单均扣罚_DEFEAT_PCT,提升KPI,提升质量,减少扣罚,继续保持,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,kpi_RANK,扣罚_RANK,骑士工资,骑士保障,骑士福利,有单天数,完成单量,效率,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉比较得分,商圈总成本,资产商圈利润率_RANK,商圈利润,商圈利润率,商圈总成本_RANK,商圈利润_RANK,商圈利润率_RANK,收入_RANK,商圈总成本_RANK_PCT,收入_RANK_PCT,主营业务收入_RANK,主营业务收入_RANK_PCT,商圈利润_RANK_PCT,商圈利润率_RANK_PCT,上月十二生肖得分,生肖比较得分,荣誉骑手数,有单骑手数,营业外收入,主营业务收入,dc_type]
+        
+        # 增加排名商圈数量
+        - stash_push_df: []
+
+        - df_groupby: 
+            by: business_team_id
+        - df_count:
+            column: dc_id 
+            rename: 参与排名商圈数量
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: business_team_id
+            how: right
+            drop_stash: true
+        - add_cols:
+            - non_rank_dc: 0
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_non_rank_dc_add_relation
+
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+
+        - df_fillna:
+            columns: ['龙','马','牛','虎','猪','猴','羊','狗','兔','鸡','蛇','鼠','十二生肖得分','生肖比较得分']
+            value: 0.0
+        - stash_push_df: []
+
+        # 增加上级无效业主标签
+        - use_df:
+            key: std_qplus_team
+            columns: [team_id,is_invalid,team_type]
+            rename:
+              team_id: owner_team_id
+        - df_select:
+            - 'is_invalid & team_type==50'
+
+#        - run_py:
+#            - |
+#                df = to_df(df)
+#                if df.index.size == 0:
+#                    df.loc[0,[u'team_id']] = [u'0000000000000000000000']
+#                result = to_dd(df)
+        - add_cols:
+            - invalid_label: 1
+        - fetch_cols:
+            - [owner_team_id, invalid_label]
+        - stash_push_df: []
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            drop_stash: true
+
+
+        - dask_apply_dtypes:
+            dtypes:
+              owner_team_id: unicode
+              owner_team_name: unicode
+              coach_team_name: unicode
+              coach_team_id: unicode
+              theater_team_name: unicode
+              theater_team_id: unicode
+              business_team_name: unicode
+              business_team_id: unicode
+              division_team_name: unicode
+              division_team_id: unicode
+              运营质量: unicode
+        - set_meta_month_column:
+            - month
+
+
+
+

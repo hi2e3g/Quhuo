@@ -1,0 +1,688 @@
+compass_knight_form_snap_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+    # 商圈数据
+    - std_qplus_dc
+    # ele收入数据
+    - ele_teams_basic_lable_by_daily_t2
+    # MT收入数据
+    - mt_teams_basic_lable_by_daily_t2
+    # MT 薪资日数据
+    - mt_worker_order_common_kpi_by_daily_t2
+    # ELE 薪资日数据
+    - ele_worker_order_common_kpi_by_daily_t2
+    # ELE 收入日数据
+    - ele_day_34_single_std_ext
+    # ELE 收入日数据
+    - ele_day_34_single_std_ext
+
+    # 事业部数据
+    - compass_business_label_base
+    # 分部数据
+    - compass_division_label_chain
+    # 大区数据
+    - compass_theater_label_chain
+    # 私教数据
+    - compass_coach_label_chain
+    # 业主数据
+    - compass_owner_label_chain
+    # 商圈数据
+    - compass_dc_label_chain
+    # 团队数据
+    - std_qplus_team_map
+
+
+  play:
+    # 处理集团基础数据
+    - name: compass_group_label_base
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_teams_basic_lable_by_daily_t2
+            columns: [订单天数,dc_id,结算单量,当月总天数]
+        - df_groupby:
+            by: [dc_id,订单天数,当月总天数]
+        - df_sum:
+            column: 结算单量
+        - df_reset_index: []
+
+        - stash_push_df: []
+
+        - use_df:
+            key: mt_teams_basic_lable_by_daily_t2
+            columns: [订单天数,dc_id,结算单量,当月总天数]
+        - df_groupby:
+            by: [dc_id,订单天数,当月总天数]
+        - df_sum:
+            column: 结算单量
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_concat_df: 
+            drop_stash: True
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'订单天数'].isnull(),u'订单天数'] =  df[u'当月总天数'].max()
+                df.loc[df.loc[:,u'订单天数']==0, u'订单天数'] =  df[u'当月总天数'].max()
+                df.loc[df.loc[:,u'订单天数']>df[u'当月总天数'].max(),u'订单天数'] =  df[u'当月总天数'].max()
+                df[u'当月总天数'] =  df[u'当月总天数'].max()
+                result = df
+        - df_eval:
+            exp_str: '[日均单量] = [结算单量]/[订单天数]'
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_dc
+            columns: [vendor_dc_id,dc_id,dc_name,platform_code,city_code,city_name,supplier_id,supplier_name, knight_qty]
+            rename:
+                vendor_dc_id: 站点ID
+                knight_qty: 骑手人数
+        - stash_push_df: []
+
+        # merge
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            drop_stash: true
+
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [dc_id,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,奋进骑手,完成单量,服务骑手,高效骑手,完美骑手,资产商圈利润率,单均基础收入,单均kpi,单均扣罚,资产商圈利润率_RANK,此生肖总数,运营质量,收入,主营业务收入,营业外收入,商圈总成本,商圈利润,商圈利润率,商圈利润率_RANK,商圈利润率_RANK_PCT,荣誉骑手数,label_name,有单骑手数,dc_type,non_rank_dc]
+        - df_select:
+            - 'non_rank_dc == 0'
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+
+    # 集团汇总
+    - name: compass_group_label_summary
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_business_label_base
+            columns: [收入,骑手人数,业主数量,私教数量,商圈数量,分部数量,大区数量,营业外收入,主营业务收入,事业部总成本,业主数量_full,骑手人数_full,商圈数量_full,私教数量_full,大区数量_full,分部数量_full,有单骑手数]
+        - add_cols:
+            -   事业部数量: 1
+                事业部数量_full: 1
+                scene: 1
+        - df_groupby:
+            by: scene
+        - df_sum:
+            column: [收入,骑手人数,业主数量,私教数量,商圈数量,分部数量,大区数量,事业部数量,营业外收入,主营业务收入,事业部总成本,事业部数量_full,业主数量_full,骑手人数_full,商圈数量_full,私教数量_full,大区数量_full,分部数量_full,有单骑手数]
+        - df_reset_index: []
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [完成单量,日均单量]
+        - add_cols:
+            - scene: 1
+        - df_groupby:
+            by: scene
+        - df_sum:
+            column: [完成单量,日均单量]
+        - df_reset_index: []
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            on: [scene]
+            how: right
+            drop_stash: true
+
+        - df_eval:
+            - |
+                [单均收入] = [主营业务收入]/[完成单量]
+                [单均成本] = [事业部总成本]/[完成单量]
+                [利润] = [收入] - [事业部总成本]
+                [利润率] = [利润]/[收入]
+        - fetch_cols: 
+            columns: [骑手人数,业主数量,私教数量,商圈数量,分部数量,大区数量,事业部数量,事业部总成本,收入,营业外收入,主营业务收入,完成单量,日均单量,单均收入,单均成本,利润,利润率,事业部数量_full,业主数量_full,骑手人数_full,商圈数量_full,私教数量_full,大区数量_full,分部数量_full,有单骑手数]
+
+
+    # 集团城市
+    - name: compass_group_label_start_city
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_group_label_base
+        - df_groupby:
+            by: [platform_code,city_code,city_name,supplier_id,supplier_name]
+        - df_sum:
+            column: [结算单量,完成单量,骑手人数,日均单量,龙,马,牛,虎,猪,猴,羊,狗,兔,鸡,蛇,鼠,奋进骑手,服务骑手,高效骑手,完美骑手,荣誉骑手数,有单骑手数]
+        - df_reset_index: []
+        - df_select:
+            - '[结算单量] != @p1'
+            - p1: 0
+
+
+
+    # 集团事业部
+    - name: compass_group_label_business
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_business_label_base
+            columns: [business_team_id,business_team_name,完成单量,收入,主营业务收入,营业外收入,事业部总成本,事业部利润,事业部利润率,事业部利润_RANK, 事业部利润_RANK_PCT, 事业部利润率_RANK, 事业部利润率_RANK_PCT, 事业部综合积分_RANK, 事业部综合积分_RANK_PCT,'淘金达人三星','淘金达人二星','淘金达人一星','青铜','白银','黄金','铂金','钻石','王者','自我提升','王者之师']
+
+        - df_eval:
+            exp_str: '[单均收入] = [主营业务收入]/[完成单量]'
+
+    # 集团分部
+    - name: compass_group_label_division
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_division_label_chain
+            columns: [division_team_id, division_team_name,business_team_id,business_team_name, 完成单量, 收入, 主营业务收入,营业外收入, 分部总成本, 分部利润, 分部利润率, 分部利润_RANK, 分部利润_RANK_PCT, 分部利润率_RANK, 分部利润率_RANK_PCT, 分部综合积分_RANK, 分部综合积分_RANK_PCT,'淘金达人三星','淘金达人二星','淘金达人一星','中农','富农','掌柜','商人','土豪','自我提升','王者之师']
+
+    # 集团大区
+    - name: compass_group_label_theater
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_theater_label_chain
+            columns: [theater_team_id,theater_team_name,division_team_id, division_team_name,business_team_id,business_team_name,完成单量,收入, 主营业务收入,营业外收入, 大区总成本,大区利润,大区利润率, 大区利润_RANK, 大区利润_RANK_PCT, 大区利润率_RANK, 大区利润率_RANK_PCT, 大区综合积分_RANK, 大区综合积分_RANK_PCT,'淘金达人三星','淘金达人二星','淘金达人一星','堂主','掌门','宗师','盟主','自我提升','王者之师']
+
+
+    # 集团私教
+    - name: compass_group_label_coach
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_coach_label_chain
+            columns: [coach_team_id,coach_team_name,theater_team_name,完成单量,收入,主营业务收入,营业外收入,私教总成本,私教利润, 私教利润率, 私教利润_RANK, 私教利润_RANK_PCT, 私教利润率_RANK, 私教利润率_RANK_PCT, 私教综合积分_RANK, 私教综合积分_RANK_PCT,'淘金达人三星','淘金达人二星','淘金达人一星','探花','榜眼','状元','自我提升','王者之师']
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [coach_team_id,division_team_name,business_team_name]
+
+        - drop_duplicates:
+            - [coach_team_id,division_team_name,business_team_name]
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: coach_team_id
+            how: right
+            drop_stash: true
+
+        - df_reset_index: []
+
+    # 集团业主
+    - name: compass_group_label_owner
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_owner_label_chain
+            columns: [owner_team_id,owner_team_name,coach_team_name,完成单量,收入,主营业务收入,营业外收入,业主总成本,业主利润,业主利润率,业主利润_RANK, 业主利润_RANK_PCT, 业主利润率_RANK, 业主利润率_RANK_PCT, 业主综合积分_RANK, 业主综合积分_RANK_PCT,'精打细算三星','精打细算二星','精打细算一星','稳中求胜三星','稳中求胜二星','稳中求胜一星','淘金达人三星','淘金达人二星','淘金达人一星','精算师','精英荟萃','财大气粗','自我提升','王者之师']
+
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [owner_team_id,theater_team_name,division_team_name,business_team_name]
+
+        - drop_duplicates:
+            - [owner_team_id,theater_team_name,division_team_name,business_team_name]
+
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: owner_team_id
+            how: right
+            drop_stash: true
+
+
+    # 美团日均单
+    - name: mt_dc_day_order
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_worker_order_common_kpi_by_daily_t2
+            columns: [日期,dc_id,总完成单量]
+            rename:
+                总完成单量: 完成单量
+
+        - df_groupby:
+            by: [日期,dc_id]
+        - df_sum:
+            column: [完成单量]
+        - df_reset_index: []
+
+        - stash_push_df: []
+        - use_df:
+            key: std_qplus_dc
+            columns: [vendor_dc_id,dc_id,dc_name,city_code,city_name,supplier_name,supplier_id,platform_code]  
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+
+    # 饿了么日均单量
+    - name: ele_dc_day_order
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_worker_order_common_kpi_by_daily_t2
+            columns: [日期,dc_id,完成单量]
+        - df_groupby:
+            by: [日期,dc_id]
+        - df_sum:
+            column: [完成单量]
+        - df_reset_index: []
+
+        - stash_push_df: []
+        - use_df:
+            key: std_qplus_dc
+            columns: [vendor_dc_id,dc_id,dc_name,city_code,city_name,supplier_name,supplier_id,platform_code]  
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+    # 商圈日单
+    - name: dc_day_order
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_dc_day_order
+        - stash_push_df: []
+
+        - use_df:
+            key: ele_dc_day_order
+        - stash_push_df: []
+
+        - stash_concat_df: 
+            drop_stash: True
+        - df_reset_index: []
+
+    # 主体单量
+    - name: supplier_day_order
+      sync_result: true
+      cooks:
+        - use_df:
+            key: dc_day_order
+        - df_groupby:
+            by: [supplier_name,supplier_id,platform_code,日期]
+        - df_sum:
+            column: [完成单量]
+        - df_reset_index: []
+
+    # 主体日均单量及日环比
+    - name: supplier_day_order_chain
+      sync_result: true
+      cooks:
+        - use_df:
+            key: supplier_day_order
+        - df_select:
+            - 'supplier_id == @p1'
+            - p1: 5b9738f4ce6d2abdaed16a8e
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df.sort_values(u'日期')
+                df['chain'] = df[u'完成单量'].pct_change()
+                result = df.iloc[-1:]
+        - stash_push_df: []
+
+
+        - use_df:
+            key: supplier_day_order
+        - df_select:
+            - 'supplier_id == @p1'
+            - p1: 5a62f3dfce6d2a295a472022
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df.sort_values(u'日期')
+                df['chain'] = df[u'完成单量'].pct_change()
+                result = df.iloc[-1:]
+        - stash_push_df: []
+
+
+        - use_df:
+            key: supplier_day_order
+        - df_select:
+            - 'supplier_id == @p1'
+            - p1: 5c8f38ae887d1f1c43bfc06e
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df.sort_values(u'日期')
+                df['chain'] = df[u'完成单量'].pct_change()
+                result = df.iloc[-1:]
+        - stash_push_df: []
+
+
+        - use_df:
+            key: supplier_day_order
+        - df_select:
+            - 'supplier_id == @p1'
+            - p1: 5b9738f5ce6d2abdaed16e09
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df.sort_values(u'日期')
+                df['chain'] = df[u'完成单量'].pct_change()
+                result = df.iloc[-1:]
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: True
+        - df_reset_index: []
+
+        - stash_push_df: []
+
+
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [supplier_id,日均单量]
+        - df_groupby:
+            by: [supplier_id]
+        - df_sum:
+            column: 日均单量
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [supplier_id]
+            how: right
+            drop_stash: true
+
+
+    # 平台单量
+    - name: platform_day_order
+      sync_result: true
+      cooks:
+        - use_df:
+            key: dc_day_order
+        - df_groupby:
+            by: [platform_code,日期]
+        - df_sum:
+            column: [完成单量]
+        - df_reset_index: []
+
+
+    # 项目日均单量及日环比
+    - name: platform_day_order_chain
+      sync_result: true
+      cooks:
+        - use_df:
+            key: platform_day_order
+
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: meituan
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df.sort_values(u'日期')
+                df['chain'] = df[u'完成单量'].pct_change()
+                result = df.iloc[-1:]
+        - stash_push_df: []
+
+
+        - use_df:
+            key: platform_day_order
+            
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: elem
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df.sort_values(u'日期')
+                df['chain'] = df[u'完成单量'].pct_change()
+                result = df.iloc[-1:]
+        - stash_push_df: []
+
+        - stash_concat_df: 
+            drop_stash: True
+        - df_reset_index: []
+
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_dc_label_chain
+            columns: [platform_code,日均单量]
+        - df_groupby:
+            by: [platform_code]
+        - df_sum:
+            column: 日均单量
+        - df_reset_index: []
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [platform_code]
+            how: right
+            drop_stash: true
+
+
+    # 商圈天数据
+    - name: dc_day_data
+      sync_result: true
+      cooks:
+        - use_df:
+            key: dc_day_order
+            columns: [dc_id,dc_name,完成单量,日期]
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,owner_team_id,owner_team_name,coach_team_name,coach_team_id,theater_team_name,theater_team_id,business_team_name,business_team_id,division_team_name,division_team_id]
+        - stash_push_df: []
+        
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - df_groupby:
+            by: [dc_id,dc_name,日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+        - run_py:
+            - result = df[df['dc_id'] != 'nan']
+
+    # 业主天数据
+    - name: owner_day_data
+      sync_result: true
+      cooks:
+        - use_df:
+            key: dc_day_order
+            columns: [dc_id,完成单量,日期]
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,owner_team_id,owner_team_name]
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - df_groupby:
+            by: [owner_team_id,owner_team_name,日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+        - run_py:
+            - result = df[df['owner_team_id'] != 'nan']
+
+    # 私教天数据
+    - name: coach_day_data
+      sync_result: true
+      cooks:
+        - use_df:
+            key: dc_day_order
+            columns: [dc_id,完成单量,日期]
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,coach_team_name,coach_team_id]
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - df_groupby:
+            by: [coach_team_name,coach_team_id,日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+        - run_py:
+            - result = df[df['coach_team_id'] != 'nan']
+
+    # 大区天数据
+    - name: theater_day_data
+      sync_result: true
+      cooks:
+        - use_df:
+            key: dc_day_order
+            columns: [dc_id,完成单量,日期]
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,theater_team_name,theater_team_id]
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - df_groupby:
+            by: [theater_team_name,theater_team_id,日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+        - run_py:
+            - result = df[df['theater_team_id'] != 'nan']
+
+    # 分部天数据
+    - name: division_day_data
+      sync_result: true
+      cooks:
+        - use_df:
+            key: dc_day_order
+            columns: [dc_id,完成单量,日期]
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,division_team_name,division_team_id]
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - df_groupby:
+            by: [division_team_name,division_team_id,日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+
+        - run_py:
+            - result = df[df['division_team_id'] != 'nan']
+
+
+    # 事业部天数据
+    - name: business_day_data
+      sync_result: true
+      cooks:
+        - use_df:
+            key: dc_day_order
+            columns: [dc_id,完成单量,日期]
+        - stash_push_df: []
+
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,business_team_name,business_team_id]
+        - stash_push_df: []
+
+
+        - stash_join_df:
+            on: [dc_id]
+            how: right
+            drop_stash: true
+
+        - df_groupby:
+            by: [business_team_name,business_team_id,日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+
+        - run_py:
+            - result = df[df['business_team_id'] != 'nan']
+
+
+    # 集团天数据
+    - name: group_day_data
+      sync_result: true
+      cooks:
+        - use_df:
+            key: dc_day_order
+            columns: [dc_id,完成单量,日期]
+        - df_groupby:
+            by: [日期]
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

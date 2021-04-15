@@ -1,0 +1,640 @@
+compass_knight_form_snap_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+    # ele薪资日数据，带日期
+    - ele_worker_order_common_kpi_by_daily_t2
+    # MT薪资日数据，带日期
+    - mt_worker_order_common_kpi_by_daily_t2
+    # ele薪资数据源
+    - ele_worker_order_common_kpi_by_monthly_t2
+    # MT薪资数据源
+    - mt_worker_order_common_kpi_by_monthly_t2
+    # 商圈基础表
+    - std_qplus_dc
+    # 团队关系表
+    - std_qplus_team_map
+
+  play:
+    # elem骑手日数据
+    - name: compass_ele_knight_day
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_worker_order_common_kpi_by_daily_t2
+            columns: [日期,dc_id,骑手ID,完成单量,好评单量,准时单量]
+        - df_groupby:
+            by: [日期,dc_id,骑手ID]
+        - df_sum:
+            column: [完成单量,准时单量,好评单量]
+        - df_reset_index: []
+
+    # mt骑手日数据
+    - name: compass_mt_knight_day
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_worker_order_common_kpi_by_daily_t2
+            columns: [日期,dc_id,骑手ID,总完成单量,好评单量,准时单量]
+            rename: 
+                总完成单量: 完成单量
+        - df_groupby:
+            by: [日期,dc_id,骑手ID]
+        - df_sum:
+            column: [完成单量,准时单量,好评单量]
+        - df_reset_index: []
+
+    # 合并美团、饿了么日数据
+    - name: compass_knight_day
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_ele_knight_day
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_mt_knight_day
+        - stash_push_df: []
+
+        - stash_concat_df: 
+            drop_stash: True
+
+
+    # ELEM 累计指标计算
+    - name: compass_knight_label_ele
+      sync_result: true
+      cooks:
+        # 平台  站点ID  骑手ID  完成单量  有单天数  准时单量  五星好评单量  出勤天数
+        - use_df:
+            key: ele_worker_order_common_kpi_by_monthly_t2
+            columns: [dc_id,骑手ID,完成单量,准时单量,出勤天数,好评单量]
+            rename:
+                出勤天数: 有单天数
+                好评单量: 五星好评单量
+        - df_eval:
+            - |
+                [效率] = [完成单量] / [有单天数]
+                [速度] = [准时单量] / [完成单量]
+                [服务] = [五星好评单量] / [完成单量]
+
+        # 增加各项指标排名字段
+        - df_rank:
+            rank_cols: [完成单量]
+            ascending: False
+        - df_rank:
+            rank_cols: [效率]
+            ascending: False
+        - df_rank:
+            rank_cols: [速度]
+            ascending: False
+        - df_rank:
+            rank_cols: [服务]
+            ascending: False
+        - df_rank:
+            rank_cols: [有单天数]
+            ascending: False
+
+        # 增加各项指标排名百分比
+        - df_rank:
+            rank_cols: [完成单量]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [效率]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [速度]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [服务]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [五星好评单量]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [有单天数]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+        # 增加各项指标击败百分比
+        - df_eval:
+            - |
+                [完成单量_DEFEAT_PCT] = 1 - [完成单量_RANK_PCT]
+                [速度_DEFEAT_PCT] = 1 - [速度_RANK_PCT]
+                [效率_DEFEAT_PCT] = 1 - [效率_RANK_PCT]
+                [速度_DEFEAT_PCT] = 1 - [速度_RANK_PCT]
+                [服务_DEFEAT_PCT] = 1 - [服务_RANK_PCT]
+
+        # 打骑手荣誉标签
+        - df_set_column_val_if:
+            column: 奋进骑手
+            condition: '[完成单量_RANK_PCT]<=@t1'
+            params:
+                t1: 0.1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 高效骑手
+            condition: '[效率]>=@t1'
+            params:
+                t1: 40
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 服务骑手
+            condition: '[五星好评单量_RANK_PCT]<=@t1'
+            params:
+                t1: 0.2
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 完美骑手
+            condition: '[奋进骑手]==@t1 & [高效骑手]==@t1 & [服务骑手]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+
+        # 增加努力方向提示语中间标签
+        - df_set_column_val_if:
+            column: 效率低
+            condition: '[效率_RANK_PCT] >= @t1'
+            params:
+                t1: 0.7
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 效率高
+            condition: '[效率_RANK_PCT] <= @t1'
+            params:
+                t1: 0.3
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 有单天数低
+            condition: '[有单天数_RANK_PCT] >= @t1'
+            params:
+                t1: 0.7
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 有单天数高
+            condition: '[有单天数_RANK_PCT] <= @t1'
+            params:
+                t1: 0.3
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 完成单量小
+            condition: '[完成单量_RANK_PCT] >= @t1'
+            params:
+                t1: 0.7
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 完成单量大
+            condition: '[完成单量_RANK_PCT] <= @t1'
+            params:
+                t1: 0.3
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 速度值差
+            condition: '[完成单量_RANK_PCT] >= @t1'
+            params:
+                t1: 0.7
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 速度值好
+            condition: '[完成单量_RANK_PCT] <= @t1'
+            params:
+                t1: 0.3
+            val: 1
+            else_val: 0
+
+        # 增加努力方向提示语字段
+        - df_set_column_val_if:
+            column: 学习技巧
+            condition: '[效率低]==@t1 & [有单天数高]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 增加出勤
+            condition: '[效率高]==@t1 & [有单天数低]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 放缓节奏
+            condition: '[完成单量大]==@t1 & [速度值差]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 效率有提升空间
+            condition: '[完成单量小]==@t1 & [速度值好]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+
+        # 计算差距单量
+        - df_eval:
+            exp_str: '[距离高效骑手差距多少单] = (40 - [效率]) * [有单天数]'
+
+
+        # 骑手荣誉得分
+        - df_eval:
+            exp_str: '[骑手荣誉得分] = [奋进骑手]*10 + [高效骑手]*10 + [服务骑手]*10 + [完美骑手]*30'
+        - stash_push_df: []
+
+
+
+        # 关联商圈基础信息表
+        - use_df:
+            key: std_qplus_dc
+            columns: [vendor_dc_id,dc_id,dc_name,platform_code,city_code,supplier_id,label_name]
+            rename: 
+                vendor_dc_id: 站点ID
+
+        - stash_push_df: []
+        # 此处用left，以整体的商圈表为准
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+
+        # 关联团队表
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,owner_team_id,coach_team_id,theater_team_id,division_team_id,business_team_id]
+        - stash_push_df: []
+        # 此处用right，以上面的数据为基准
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - df_reset_index: []
+
+    # MT 累计指标计算
+    - name: compass_knight_label_mt
+      sync_result: true
+      cooks:
+        # 平台  站点ID  骑手ID  完成单量  有单天数  准时单量  五星好评单量  出勤天数
+        - use_df:
+            key: mt_worker_order_common_kpi_by_monthly_t2
+            columns: [dc_id,骑手ID,总完成单量,准时单量,出勤天数,好评单量]
+            rename:
+                总完成单量: 完成单量
+                出勤天数: 有单天数
+                好评单量: 五星好评单量
+        - df_eval:
+            - |
+                [效率] = [完成单量] / [有单天数]
+                [速度] = [准时单量] / [完成单量]
+                [服务] = [五星好评单量] / [完成单量]
+
+        # 增加各项指标排名字段
+        - df_rank:
+            rank_cols: [完成单量]
+            ascending: False
+        - df_rank:
+            rank_cols: [效率]
+            ascending: False
+        - df_rank:
+            rank_cols: [速度]
+            ascending: False
+        - df_rank:
+            rank_cols: [服务]
+            ascending: False
+        - df_rank:
+            rank_cols: [有单天数]
+            ascending: False
+
+        # 增加各项指标排名百分比
+        - df_rank:
+            rank_cols: [完成单量]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [效率]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [速度]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [服务]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [五星好评单量]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+        - df_rank:
+            rank_cols: [有单天数]
+            ascending: False
+            pct: True
+            rank_suffix: '_RANK_PCT'
+
+        # 增加各项指标击败百分比
+        - df_eval:
+            - |
+                [完成单量_DEFEAT_PCT] = 1 - [完成单量_RANK_PCT]
+                [速度_DEFEAT_PCT] = 1 - [速度_RANK_PCT]
+                [效率_DEFEAT_PCT] = 1 - [效率_RANK_PCT]
+                [速度_DEFEAT_PCT] = 1 - [速度_RANK_PCT]
+                [服务_DEFEAT_PCT] = 1 - [服务_RANK_PCT]
+
+        # 打骑手荣誉标签
+        - df_set_column_val_if:
+            column: 奋进骑手
+            condition: '[完成单量_RANK_PCT]<=@t1'
+            params:
+                t1: 0.1
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 高效骑手
+            condition: '[效率]>=@t1'
+            params:
+                t1: 40
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 服务骑手
+            condition: '[五星好评单量_RANK_PCT]<=@t1'
+            params:
+                t1: 0.2
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 完美骑手
+            condition: '[奋进骑手]==@t1 & [高效骑手]==@t1 & [服务骑手]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+
+        # 增加努力方向提示语中间标签
+        - df_set_column_val_if:
+            column: 效率低
+            condition: '[效率_RANK_PCT] >= @t1'
+            params:
+                t1: 0.7
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 效率高
+            condition: '[效率_RANK_PCT] <= @t1'
+            params:
+                t1: 0.3
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 有单天数低
+            condition: '[有单天数_RANK_PCT] >= @t1'
+            params:
+                t1: 0.7
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 有单天数高
+            condition: '[有单天数_RANK_PCT] <= @t1'
+            params:
+                t1: 0.3
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 完成单量小
+            condition: '[完成单量_RANK_PCT] >= @t1'
+            params:
+                t1: 0.7
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 完成单量大
+            condition: '[完成单量_RANK_PCT] <= @t1'
+            params:
+                t1: 0.3
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 速度值差
+            condition: '[完成单量_RANK_PCT] >= @t1'
+            params:
+                t1: 0.7
+            val: 1
+            else_val: 0
+
+        - df_set_column_val_if:
+            column: 速度值好
+            condition: '[完成单量_RANK_PCT] <= @t1'
+            params:
+                t1: 0.3
+            val: 1
+            else_val: 0
+
+        # 增加努力方向提示语字段
+        - df_set_column_val_if:
+            column: 学习技巧
+            condition: '[效率低]==@t1 & [有单天数高]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 增加出勤
+            condition: '[效率高]==@t1 & [有单天数低]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 放缓节奏
+            condition: '[完成单量大]==@t1 & [速度值差]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+        - df_set_column_val_if:
+            column: 效率有提升空间
+            condition: '[完成单量小]==@t1 & [速度值好]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+
+        - df_eval:
+            - |
+                [距离高效骑手差距多少单] = (40 - [效率]) * [有单天数]
+                [骑手荣誉得分] = [奋进骑手]*10 + [高效骑手]*10 + [服务骑手]*10 + [完美骑手]*30
+        - stash_push_df: []
+
+        # 关联商圈基础信息表
+        - use_df:
+            key: std_qplus_dc
+            columns: [vendor_dc_id,dc_id,dc_name,platform_code,city_code,supplier_id,label_name]
+            rename: 
+                vendor_dc_id: 站点ID
+
+        - stash_push_df: []
+        # 此处用left，以整体的商圈表为准
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+
+        # 关联团队表
+        - use_df:
+            key: std_qplus_team_map
+            columns: [dc_id,owner_team_id,coach_team_id,theater_team_id,division_team_id,business_team_id]
+        - stash_push_df: []
+        # 此处用right，以上面的数据为基准
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - df_reset_index: []
+
+    # 合并美团、饿了么累计指标数据
+    - name: compass_knight_label
+      sync_result: true
+      cooks:
+        - use_df:
+            key: compass_knight_label_ele
+        - stash_push_df: []
+
+        - use_df:
+            key: compass_knight_label_mt
+        - stash_push_df: []
+        - stash_concat_df:
+            drop_stash: True
+        - df_reset_index:
+            drop: true
+
+            
+        - df_set_column_val_if:
+            column: 荣誉骑手数
+            condition: '[奋进骑手]==@t1 | [高效骑手]==@t1 | [服务骑手]==@t1 | [完美骑手]==@t1'
+            params:
+                t1: 1
+            val: 1
+            else_val: 0
+
+        - add_cols:
+            - 有单骑手数: 1
+
+        - dask_apply_dtypes:
+            dtypes:
+              dc_id: unicode
+
+    # 和上月的数据进行差值
+    - name: compass_knight_label_chain
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: compass_knight_label
+            dataset_cate: std
+            columns: [dc_id,骑手ID,骑手荣誉得分]
+            month_value: prev_month
+            ignore_null_error: true
+            empty_df_record:
+                dc_id: '-'
+                骑手ID: '-'
+                上月骑手荣誉得分: 0
+            rename:
+                骑手荣誉得分: 上月骑手荣誉得分
+        - dask_apply_dtypes:
+            dtypes:
+              骑手ID: unicode
+        - stash_push_df: []
+        - use_df:
+            key: compass_knight_label
+        - dask_apply_dtypes:
+            dtypes:
+              骑手ID: unicode
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [dc_id,骑手ID]
+            how: left    
+            drop_stash: true
+
+        - df_fillna:
+            columns: [上月骑手荣誉得分]
+            value: 0.0
+
+
+        - df_eval:
+            exp_str: '[荣誉比较得分] = [骑手荣誉得分] - [上月骑手荣誉得分]'
+        - dask_apply_dtypes:
+            dtypes:
+              dc_id: unicode
+              owner_team_id: unicode
+              coach_team_id: unicode
+              theater_team_id: unicode
+              division_team_id: unicode
+              business_team_id: unicode
+              dc_name: unicode
+              platform_code: unicode
+              city_code: unicode
+              supplier_id: unicode
+              label_name: unicode
+
+
+
+        - set_meta_month_column:
+            - month
+
+
+
+
+
+
