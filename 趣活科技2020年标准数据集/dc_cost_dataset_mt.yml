@@ -1,0 +1,87 @@
+mt_daily_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    platform_code: meituan
+    cluster_client_address: tcp://172.31.54.193:8786
+  context_global_vars:
+    # 美团调价参数
+    mt_adjust_price_param: 0.0000
+
+  pre_load_dataset:
+    # 薪资(日维度骑手数据)
+    - mt_worker_order_common_kpi_by_daily_t2
+    - mt_dc_cost_t2
+
+  play:
+    #维度: 日期 站点 骑手
+    - name: mt_cost_basic_lable_by_daily_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_dc_cost_t2
+            columns: [dc_id, 单成本,工资单成本]
+            index: dc_id
+        - stash_push_df: []
+        - use_df:
+            key: mt_worker_order_common_kpi_by_daily_t2
+            columns: [日期, dc_id, 骑手ID, 完成单量]
+            index: dc_id
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            fillna: 0
+            drop_stash: true
+        - df_reset_index: []
+        - df_eval:
+            - '[商圈骑手成本] = [工资单成本] * ([完成单量])'
+        - set_meta_month_column:
+            - month
+
+    # 维度：单站点 骑手
+    - name: mt_cost_knight_by_daily_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_cost_basic_lable_by_daily_t2
+            columns: [日期, dc_id, 骑手ID, 商圈骑手成本]
+        - df_groupby:
+            by: [dc_id,骑手ID]
+        - df_sum:
+            column: [商圈骑手成本]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    # 维度：日期 站点
+    - name: mt_cost_dc_by_daily_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_cost_basic_lable_by_daily_t2
+            columns: [日期, dc_id, 骑手ID, 商圈骑手成本]
+        - df_groupby:
+            by: [日期,dc_id]
+        - df_sum:
+            column: [商圈骑手成本]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    #  维度：站点 
+    - name: mt_cost_dc_knight_by_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_cost_basic_lable_by_daily_t2
+            columns: [日期, dc_id, 骑手ID, 商圈骑手成本]
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [商圈骑手成本]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month

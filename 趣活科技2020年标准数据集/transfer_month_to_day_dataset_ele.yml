@@ -1,0 +1,223 @@
+ele_daily_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    platform_code: elem
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+    # 收入
+    - ele_month_35_single_std_ext
+    - ele_month_35_ttl_std_ext
+    - ele_month_37_std_ext_lookup_map
+    - ele_month_39_std_ext_lookup_map
+    - ele_month_41_std_ext_lookup_map
+    - ele_teams_basic_lable_by_month
+    # 薪资
+    - ele_worker_order_common_kpi_by_daily_month
+    - ele_worker_order_common_kpi_by_monthly_month
+    # 运营质量
+    - ele_teams_service_quality_by_monthly_month
+    - ele_illegal_score_by_monthly_month
+    - ele_bad_order_score_by_monthly_month
+    - ele_timeout_score_by_monthly_month
+    - ele_sham_delivery_score_by_monthly_month
+    - ele_t12_timeout_score_by_monthly_month
+    - ele_cancel_delivery_score_by_monthly_month
+    - ele_dc_parts_score_by_monthly_month
+    - ele_dc_start_level_by_monthly_month
+
+  play:  
+    # 收入
+    - name: ele_day_34_single_std_ext
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_month_35_single_std_ext'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_day_34_single_std_ext'
+            dataset_cate: std
+    
+    - name: ele_day_34_ttl_std_ext
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_month_35_ttl_std_ext'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_day_34_ttl_std_ext'
+            dataset_cate: std
+    
+    - name: ele_day_36_std_ext_lookup_map
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_month_37_std_ext_lookup_map'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_day_36_std_ext_lookup_map'
+            dataset_cate: std
+    
+    - name: ele_day_38_std_ext_lookup_map
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_month_39_std_ext_lookup_map'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_day_38_std_ext_lookup_map'
+            dataset_cate: std
+    
+    - name: ele_day_40_std_ext_lookup_map
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_month_41_std_ext_lookup_map'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_day_40_std_ext_lookup_map'
+            dataset_cate: std
+    
+    - name: ele_teams_basic_lable_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_teams_basic_lable_by_month'
+            dataset_cate: std
+            ignore_null_error: true
+            rename:
+              准确日均单量: 动态日均单量
+              当月准确总结算单量: 当月预估总结算单量
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_teams_basic_lable_by_daily_t2'
+            dataset_cate: std
+    
+    # 薪资
+    - name: ele_worker_order_common_kpi_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_worker_order_common_kpi_by_daily_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_worker_order_common_kpi_by_daily_t2'
+            dataset_cate: std
+
+    - name: ele_worker_order_common_kpi_by_monthly_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_worker_order_common_kpi_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_worker_order_common_kpi_by_monthly_t2'
+            dataset_cate: std
+    
+    # 运营质量
+    - name: ele_teams_service_quality_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_teams_service_quality_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_teams_service_quality_by_daily_t2'
+            dataset_cate: std
+
+    - name: ele_illegal_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_illegal_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_illegal_score_by_daily_t2'
+            dataset_cate: std
+    
+    - name: ele_bad_order_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_bad_order_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_bad_order_score_by_daily_t2'
+            dataset_cate: std
+
+    - name: ele_timeout_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_timeout_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_timeout_score_by_daily_t2'
+            dataset_cate: std
+
+    - name: ele_sham_delivery_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_sham_delivery_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_sham_delivery_score_by_daily_t2'
+            dataset_cate: std
+      
+    - name: ele_t12_timeout_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_t12_timeout_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_t12_timeout_score_by_daily_t2'
+            dataset_cate: std
+
+    - name: ele_cancel_delivery_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_cancel_delivery_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_cancel_delivery_score_by_daily_t2'
+            dataset_cate: std
+
+    - name: ele_dc_parts_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_dc_parts_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_dc_parts_score_by_daily_t2'
+            dataset_cate: std
+      
+    - name: ele_dc_start_level_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'ele_dc_start_level_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'ele_dc_start_level_by_daily_t2'
+            dataset_cate: std

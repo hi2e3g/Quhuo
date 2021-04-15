@@ -1,0 +1,573 @@
+mt_ele_daily_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+    - mt_worker_order_common_kpi_by_monthly_t2
+    - ele_worker_order_common_kpi_by_monthly_t2
+    - mt_city_per_order_cost_median_forecast
+    - ele_city_per_order_cost_median_forecast
+  play:
+
+    # 本月有单商圈
+    - name: have_order_dc_mt_ele
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_worker_order_common_kpi_by_monthly_t2
+            columns: [dc_id, 完成单量]
+        - df_groupby:
+            by: dc_id
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+        - add_cols:
+            - platform_code: elem
+        - stash_push_df: []
+
+        - use_df:
+            key: mt_worker_order_common_kpi_by_monthly_t2
+            columns: [dc_id, 完成单量]
+        - df_groupby:
+            by: dc_id
+        - df_sum:
+            column: 完成单量
+        - df_reset_index: []
+        - add_cols:
+            - platform_code: meituan
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: std_qplus_dc
+            dataset_cate: std
+            fallback_last: true
+            columns: [dc_id,city_code,supplier_id]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+
+
+
+    # 测算美团单均成本(暂定取历史月份单成本)
+#     - name: mt_dc_cost_t2_by_dc_forecast
+#       sync_result: true
+#       cooks:
+#         - fetch_dataset:
+#             dataset_type_code: mt_dc_cost_t2_by_dc_month
+#             dataset_cate: std
+#             month_offset: -1
+#             ignore_null_error: true
+#             # columns: [dc_id, city_code, supplier_id, 单成本]
+
+#         - when_empty_fetch_dataset:
+#             dataset_type_code: mt_dc_cost_t2_by_dc_forecast
+#             dataset_cate: std
+#             month_offset: -1
+#             ignore_null_error: true
+# #            columns: [dc_id, city_code, supplier_id, 单成本,工资单成本]
+
+
+    #### 利用上个月数据计算mt dc_id级别的工资单成本
+    - name: mt_dc_cost_t2_by_dc_forecast
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: cost_revenue_business_dc
+            dataset_cate: std
+            month_offset: -1
+            columns: [ dc_id,city_code,supplier_id,platform_code, assets_income, settlement_order_quantity_first,knight_wages ]
+            ignore_null_error: true
+            empty_df_record:
+              dc_id: '-'
+              city_code: '-'
+              supplier_id: '-'
+              platform_code: '-'
+              assets_income: 0
+              settlement_order_quantity_first: 0
+              knight_wages: 0
+            rename:
+              assets_income: 骑士成本
+              settlement_order_quantity_first: 结算单量
+              knight_wages: 骑士工资
+
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: meituan
+
+        - df_fillna:
+            columns: [ 骑士成本,结算单量,骑士工资 ]
+            value: 0.0
+        - run_py:
+            - |
+              df = to_df(df)
+              df[u'工资单成本'] = 0
+              df.loc[df.loc[:,u'结算单量'] > 0,u'工资单成本'] =  (df[u'骑士工资']/100)/df[u'结算单量']
+              result = df
+        - set_meta_month_column:
+            - month
+        - fetch_cols:
+            columns: [ dc_id,city_code,supplier_id,工资单成本 ]
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: mt_dc_cost_t2_by_dc_month
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [dc_id, city_code, supplier_id, 单成本]
+
+        - when_empty_fetch_dataset:
+            dataset_type_code: mt_dc_cost_t2_by_dc_forecast
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [dc_id, city_code, supplier_id, 单成本]
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id,city_code,supplier_id]
+            how: left
+            drop_stash: true
+
+
+    # 美团能在测算或计算中找到单成本的商圈
+    - name: mt_dc_cost_t2_by_dc
+      sync_result: true
+      cooks:
+        # - use_df:
+        #     key: mt_dc_cost_t2_by_dc_forecast
+        - fetch_dataset:
+            dataset_type_code: mt_dc_cost_t2_by_dc_forecast
+            dataset_cate: std
+            columns: [dc_id,city_code,supplier_id,单成本,工资单成本]
+        - stash_push_df: []
+
+        - use_df:
+            key: have_order_dc_mt_ele
+            columns: [dc_id,platform_code]
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: meituan
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: [单成本,工资单成本]
+            value: 0.0
+
+#        - df_select:
+#            - '[工资单成本] != 0'
+        - df_select:
+            - '[单成本] != 0 & [工资单成本] != 0' 
+        - fetch_cols:
+            columns: [dc_id,单成本,工资单成本]
+
+
+    # 美团在测算或计算中找不到单成本的商圈,替换城市单成本median
+    - name: mt_dc_cost_t2_by_city
+      sync_result: true
+      cooks:
+        # - use_df:
+        #     key: mt_dc_cost_t2_by_dc_forecast
+        - fetch_dataset:
+            dataset_type_code: mt_dc_cost_t2_by_dc_forecast
+            dataset_cate: std
+            columns: [dc_id,city_code,supplier_id,单成本,工资单成本]
+        - stash_push_df: []
+
+        - use_df:
+            key: have_order_dc_mt_ele
+            columns: [dc_id,platform_code]
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: meituan
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: [单成本,工资单成本]
+            value: 0.0
+
+#        - df_select:
+#            - '[工资单成本] == 0'
+        - run_py:
+            - |
+              df = to_df(df)
+              df_need = df[(df[u'单成本'] == 0) | (df[u'工资单成本'] == 0)]
+              result = df_need
+        - stash_push_df: []
+
+
+        - use_df:
+            key: mt_city_per_order_cost_median_forecast
+            columns: [city_code,supplier_id,城市单成本_median,城市工资单成本_median]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [city_code,supplier_id]
+            how: right
+            drop_stash: true
+        - df_eval:
+            - |
+                [单成本] = [城市单成本_median]
+                [工资单成本] = [城市工资单成本_median]
+#        - fetch_cols:
+#            columns: [dc_id,单成本,工资单成本]
+        - df_rename_columns:
+            - 城市单成本_median: city_median_order_cost
+              城市工资单成本_median: city__median_salary_order_cost
+
+
+    # 美团在测算或计算中找不到单成本的商圈,所在城市也属于新城市，替换为多有城市单成本median(暂时方案，后期优化)
+    - name: mt_dc_cost_t2_by_all_city
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_dc_cost_t2_by_city
+
+        - df_is_nan_inf:
+            column: city_median_order_cost
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - use_df:
+            key: mt_city_per_order_cost_median_forecast
+            columns: [城市单成本_median,城市工资单成本_median]
+
+        - add_cols:
+            - scene: 1
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df.groupby([u'scene']).median().reset_index()
+                result = to_dd(df)
+        - stash_push_df: []
+        - stash_join_df:
+            on: [scene]
+            how: right
+            drop_stash: true
+
+        - df_eval:
+            - |
+                [单成本] = [城市单成本_median]
+                [工资单成本] = [城市工资单成本_median]
+
+        - fetch_cols:
+            columns: [dc_id,单成本,工资单成本]
+
+    # 本月完整美团商圈单成本
+    - name: mt_dc_cost_t2_forecast
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_dc_cost_t2_by_dc
+            columns: [dc_id,单成本,工资单成本]
+        - stash_push_df: []
+        - use_df:
+            key: mt_dc_cost_t2_by_all_city
+        - stash_push_df: []
+        - use_df:
+            key: mt_dc_cost_t2_by_city
+        - df_not_nan_inf:
+            column: city_median_order_cost
+        - run_py:
+            - |
+              df = to_df(df)
+              df_need = df[[u'dc_id',u'单成本',u'工资单成本']]
+              result = to_dd(df_need)
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+        - set_meta_month_column:
+            - month
+
+    # 变换表名称，供下次计算调用
+    - name: mt_dc_cost_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_dc_cost_t2_forecast
+
+
+
+
+
+
+
+
+
+
+
+    # 测算饿了么单均成本(暂定取历史月份单成本)
+#     - name: ele_dc_cost_t2_by_dc_forecast
+#       sync_result: true
+#       cooks:
+#         - fetch_dataset:
+#             dataset_type_code: ele_dc_cost_t2_by_dc_month
+#             dataset_cate: std
+#             month_offset: -1
+#             ignore_null_error: true
+# #            columns: [dc_id, city_code, supplier_id, 单成本,工资单成本]
+#         - when_empty_fetch_dataset:
+#             dataset_type_code: ele_dc_cost_t2_by_dc_forecast
+#             dataset_cate: std
+#             month_offset: -1
+#             ignore_null_error: true
+# #            columns: [dc_id, city_code, supplier_id, 单成本,工资单成本]
+#### 利用上个月数据计算ele dc_id级别的工资单成本
+    - name: ele_dc_cost_t2_by_dc_forecast
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: cost_revenue_business_dc
+            dataset_cate: std
+            month_offset: -1
+            columns: [ dc_id,city_code,supplier_id,platform_code, assets_income, settlement_order_quantity_first,knight_wages ]
+            ignore_null_error: true
+            empty_df_record:
+              dc_id: '-'
+              city_code: '-'
+              supplier_id: '-'
+              platform_code: '-'
+              assets_income: 0
+              settlement_order_quantity_first: 0
+              knight_wages: 0
+            rename:
+              assets_income: 骑士成本
+              settlement_order_quantity_first: 结算单量
+              knight_wages: 骑士工资
+
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: elem
+
+        - df_fillna:
+            columns: [ 骑士成本,结算单量,骑士工资 ]
+            value: 0.0
+        - run_py:
+            - |
+              df = to_df(df)
+              df[u'工资单成本'] = 0
+              df.loc[df.loc[:,u'结算单量'] > 0,u'工资单成本'] =  (df[u'骑士工资']/100)/df[u'结算单量']
+              result = df
+        - set_meta_month_column:
+            - month
+        - fetch_cols:
+            columns: [ dc_id,city_code,supplier_id,工资单成本 ]
+        - stash_push_df: [ ]
+
+        - fetch_dataset:
+            dataset_type_code: ele_dc_cost_t2_by_dc_month
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [dc_id, city_code, supplier_id, 单成本]
+        - when_empty_fetch_dataset:
+            dataset_type_code: ele_dc_cost_t2_by_dc_forecast
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [dc_id, city_code, supplier_id, 单成本]
+        - stash_push_df: [ ]
+
+        - stash_join_df:
+            on: [ dc_id,city_code,supplier_id ]
+            how: left
+            drop_stash: true
+
+
+    # 饿了么能在测算或计算中找到单成本的商圈
+    - name: ele_dc_cost_t2_by_dc
+      sync_result: true
+      cooks:
+        # - use_df:
+        #     key: ele_dc_cost_t2_by_dc_forecast
+        - fetch_dataset:
+            dataset_type_code: ele_dc_cost_t2_by_dc_forecast
+            dataset_cate: std
+            columns: [dc_id,city_code,supplier_id,单成本,工资单成本]
+        - stash_push_df: []
+
+        - use_df:
+            key: have_order_dc_mt_ele
+            columns: [dc_id,platform_code]
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: elem
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: [单成本,工资单成本]
+            value: 0.0
+#
+#        - df_select:
+#            - '[工资单成本] != 0'
+        - df_select:
+            - '[单成本] != 0 & [工资单成本] != 0' 
+        - fetch_cols:
+            columns: [dc_id,单成本,工资单成本]
+
+
+    # 饿了么在测算或计算中找不到单成本的商圈,替换城市单成本median
+    - name: ele_dc_cost_t2_by_city
+      sync_result: true
+      cooks:
+        # - use_df:
+        #     key: ele_dc_cost_t2_by_dc_forecast
+        - fetch_dataset:
+            dataset_type_code: ele_dc_cost_t2_by_dc_forecast
+            dataset_cate: std
+            columns: [dc_id,city_code,supplier_id,单成本,工资单成本]
+        - stash_push_df: []
+
+        - use_df:
+            key: have_order_dc_mt_ele
+            columns: [dc_id,platform_code]
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: elem
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: dc_id
+            how: left
+            drop_stash: true
+
+        - df_fillna:
+            columns: [单成本,工资单成本]
+            value: 0.0
+
+#        - df_select:
+#            - '[工资单成本] == 0'
+        - run_py:
+            - |
+              df = to_df(df)
+              df_need = df[(df[u'单成本'] == 0) | (df[u'工资单成本'] == 0)]
+              result = df_need
+        - stash_push_df: []
+
+
+        - use_df:
+            key: ele_city_per_order_cost_median_forecast
+            columns: [city_code,supplier_id,城市单成本_median,城市工资单成本_median]
+        - stash_push_df: []
+
+        - stash_join_df:
+            on: [city_code,supplier_id]
+            how: right
+            drop_stash: true
+        - df_eval:
+            - |
+                [单成本] = [城市单成本_median]
+                [工资单成本] = [城市工资单成本_median]
+
+#        - fetch_cols:
+#            columns: [dc_id,单成本,工资单成本]
+        - df_rename_columns:
+            - 城市单成本_median: city_median_order_cost
+              城市工资单成本_median: city__median_salary_order_cost
+
+
+    # 饿了么在测算或计算中找不到单成本的商圈,所在城市也属于新城市，替换为多有城市单成本median(暂时方案，后期优化)
+    - name: ele_dc_cost_t2_by_all_city
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_dc_cost_t2_by_city
+
+        - df_is_nan_inf:
+            column: city_median_order_cost
+        - add_cols:
+            - scene: 1
+        - stash_push_df: []
+
+        - use_df:
+            key: ele_city_per_order_cost_median_forecast
+            columns: [城市单成本_median,城市工资单成本_median]
+
+        - add_cols:
+            - scene: 1
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df = df.groupby([u'scene']).median().reset_index()
+                result = to_dd(df)
+        - stash_push_df: []
+        - stash_join_df:
+            on: [scene]
+            how: right
+            drop_stash: true
+
+        - df_eval:
+            - |
+                [单成本] = [城市单成本_median]
+                [工资单成本] = [城市工资单成本_median]
+        - fetch_cols:
+            columns: [dc_id,单成本,工资单成本]
+
+    # 饿了么本月完整美团商圈单成本
+    - name: ele_dc_cost_t2_forecast
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_dc_cost_t2_by_dc
+            columns: [dc_id,单成本,工资单成本]
+        - stash_push_df: []
+        - use_df:
+            key: ele_dc_cost_t2_by_all_city
+        - stash_push_df: []
+        - use_df:
+            key: ele_dc_cost_t2_by_city
+        - df_not_nan_inf:
+            column: city_median_order_cost
+        - run_py:
+            - |
+              df = to_df(df)
+              df_need = df[[u'dc_id',u'单成本',u'工资单成本']]
+              result = to_dd(df_need)
+        - stash_push_df: []
+
+        - stash_concat_df:
+            drop_stash: true
+        - set_meta_month_column:
+            - month
+
+
+    # 变换表名称，供下次计算调用
+    - name: ele_dc_cost_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_dc_cost_t2_forecast
+
+
+
+
+

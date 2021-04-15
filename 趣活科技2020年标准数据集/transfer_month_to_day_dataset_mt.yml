@@ -1,0 +1,244 @@
+mt_daily_env:
+  context_defaults:
+    platform_code: meituan
+    play_on_dask_cluster: true
+    delay_compute: true
+    dask_client_set_as_default: true
+    sync_result_from_cluster: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+  pre_load_dataset:
+    # 收入
+    - mt_month_7_std_single_ext
+    - mt_month_7_std_ttl_ext
+    - mt_month_8_std_ext
+    - mt_month_17_std_ext
+    - mt_month_26_std_ext
+    - mt_month_27_std_ext
+    - mt_month_28_std_ext
+    - mt_month_29_std_ext
+    - mt_month_16_std_ext
+    - mt_month_14_std_ext
+    - mt_teams_basic_lable_by_month
+    # 薪资
+    - mt_worker_order_common_kpi_by_monthly_month
+
+    # 运营质量
+    - std_qplus_vendor_dc_map
+    - mt_month_16_std
+    - mt_fifteen_score_by_monthly_month
+    - mt_advance_reach_score_by_monthly_month
+    - mt_unsatisfied_score_by_monthly_month
+    - mt_unfinished_score_by_monthly_month
+    - mt_punctual_score_by_monthly_month
+    - mt_dc_parts_score_by_monthly_month
+    - mt_dc_start_level_by_monthly_month
+
+  play:  
+    # 收入
+    - name: mt_day_4_std_single_ext
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_month_7_std_single_ext'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_day_4_std_single_ext'
+            dataset_cate: std
+
+    - name: mt_day_4_std_ttl_ext
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_month_7_std_ttl_ext'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_day_4_std_ttl_ext'
+            dataset_cate: std
+
+    - name: mt_day_5_std_ext
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_month_8_std_ext'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_day_5_std_ext'
+            dataset_cate: std
+
+    - name: mt_day_12_std_ext
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_month_17_std_ext'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_day_12_std_ext'
+            dataset_cate: std
+
+    - name: mt_day_25_std_ext
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_month_26_std_ext'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_day_25_std_ext'
+            dataset_cate: std
+
+    - name: mt_day_13_std_ext
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_month_16_std_ext'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_day_13_std_ext'
+            dataset_cate: std
+      
+    - name: mt_day_15_std_ext
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_month_14_std_ext'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_day_15_std_ext'
+            dataset_cate: std
+
+    - name: mt_teams_basic_lable_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_teams_basic_lable_by_month'
+            dataset_cate: std
+            ignore_null_error: true
+            rename:
+              准确日均单量: 动态日均单量
+              当月准确总结算单量: 当月预估总结算单量
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_teams_basic_lable_by_daily_t2'
+            dataset_cate: std
+
+    # 薪资
+    - name: mt_worker_order_common_kpi_by_monthly_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_worker_order_common_kpi_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_worker_order_common_kpi_by_monthly_t2'
+            dataset_cate: std
+
+    # 运营质量
+    - name: mt_teams_service_quality_by_daily_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - fetch_dataset:
+            dataset_type_code: 'mt_month_16_std'
+            dataset_cate: std
+            columns: [站点ID, 得分, 星级, 不满意率, 复合准时率考核, 配送原因未完成率, 提前点送达率复合, 15分钟超时订单占比]
+            rename:
+              得分: 平台得分
+              星级: 平台星级
+            ignore_null_error: true
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_teams_service_quality_by_daily_t2'
+            dataset_cate: std
+    
+    - name: mt_fifteen_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_fifteen_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_fifteen_score_by_daily_t2'
+            dataset_cate: std
+
+    - name: mt_advance_reach_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_advance_reach_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_advance_reach_score_by_daily_t2'
+            dataset_cate: std
+
+    - name: mt_unsatisfied_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_unsatisfied_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_unsatisfied_score_by_daily_t2'
+            dataset_cate: std
+
+    - name: mt_unfinished_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_unfinished_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_unfinished_score_by_daily_t2'
+            dataset_cate: std
+
+    - name: mt_punctual_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_punctual_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_punctual_score_by_daily_t2'
+            dataset_cate: std
+
+    - name: mt_dc_parts_score_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_dc_parts_score_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_dc_parts_score_by_daily_t2'
+            dataset_cate: std
+
+    - name: mt_dc_start_level_by_daily_t2
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: 'mt_dc_start_level_by_monthly_month'
+            dataset_cate: std
+            ignore_null_error: true
+        - when_empty_fetch_dataset:
+            dataset_type_code: 'mt_dc_start_level_by_daily_t2'
+            dataset_cate: std

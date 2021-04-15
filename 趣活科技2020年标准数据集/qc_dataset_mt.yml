@@ -1,0 +1,832 @@
+mt_daily_env:
+  context_defaults:
+    platform_code: meituan
+    play_on_dask_cluster: true
+    delay_compute: true
+    sync_result_from_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+  context_global_vars:
+    # 复合准时率考核
+    mt_punctual_ratio_000: 0.978006
+    mt_punctual_ratio_100: 0.986114
+    mt_punctual_ratio_120: 0.993528
+    # 配送原因未完成率
+    mt_unfinished_ratio_000: 0.002026
+    mt_unfinished_ratio_100: 0.000217
+    mt_unfinished_ratio_120: 0.000076
+    # 不满意率
+    mt_unsatisfied_ratio_000: 0.002026
+    mt_unsatisfied_ratio_100: 0.001282
+    mt_unsatisfied_ratio_120: 0.000217
+    # 提前点送达率(复合)
+    mt_advance_reach_ratio_000: 0.000307
+    mt_advance_reach_ratio_100: 0.000181
+    mt_advance_reach_ratio_120: 0.000157
+    # 15分钟超时订单占比
+    mt_fifteen_timeout_ratio_000: 0.011403
+    mt_fifteen_timeout_ratio_100: 0.007625
+    mt_fifteen_timeout_ratio_120: 0.004425
+    # 得分权重
+    mt_punctual_weight: 0.2
+    mt_unfinished_weight: 0.3
+    mt_unsatisfied_weight: 0.2
+    mt_advance_reach_weight: 0.15
+    mt_fifteen_timeout_weight: 0.15
+    # 各项得分分数线
+    mt_single_item_score_000: 0
+    mt_single_item_score_100: 100
+    mt_single_item_score_120: 120
+    # 星级得分线
+    mt_start_level_score_100: 100
+    mt_start_level_score_110: 110
+    mt_start_level_score_120: 118
+
+  pre_load_dataset:
+    - std_qplus_vendor_dc_map
+    - mt_teams_service_quality_by_daily_t2
+
+  #  预计算的数据集
+  play:
+    - name: mt_teams_service_quality_by_daily_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - set_meta_month_column:
+            - month
+
+    # 15分钟超时订单占比得分
+    - name: mt_fifteen_score_by_daily_t2
+      sync_result: true
+      cooks:
+        #  表格样式【dc_id, 15分钟超时订单占比得分,15分钟超时订单占比】
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 15分钟超时订单占比]
+        - df_select: 
+            - '[15分钟超时订单占比] >= @mt_fifteen_timeout_ratio_000'
+        - add_cols:
+            - 15分钟超时订单占比得分: 0
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 15分钟超时订单占比]
+        - df_select:
+            - '[15分钟超时订单占比] < @mt_fifteen_timeout_ratio_000 & [15分钟超时订单占比] > @mt_fifteen_timeout_ratio_100'
+        - df_eval:
+            - '[15分钟超时订单占比得分] = @mt_single_item_score_100 -((@mt_single_item_score_100 - @mt_single_item_score_000)* (@mt_fifteen_timeout_ratio_000 - [15分钟超时订单占比]) / (@mt_fifteen_timeout_ratio_000 - @mt_fifteen_timeout_ratio_100))'
+        - df_reset_index: []   
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 15分钟超时订单占比]
+        - df_select:
+            - '[15分钟超时订单占比] == @mt_fifteen_timeout_ratio_100'
+        - add_cols:
+            - 15分钟超时订单占比得分: 100
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 15分钟超时订单占比]
+        - df_select:
+            - '[15分钟超时订单占比] < @mt_fifteen_timeout_ratio_100 & [15分钟超时订单占比] > @mt_fifteen_timeout_ratio_120'
+        - df_eval:
+            - '[15分钟超时订单占比得分] =  @mt_single_item_score_120 - ((@mt_single_item_score_120 - @mt_single_item_score_100)*(@mt_fifteen_timeout_ratio_100 - [15分钟超时订单占比])/(@mt_fifteen_timeout_ratio_100 - @mt_fifteen_timeout_ratio_120))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 15分钟超时订单占比]
+        - df_select:
+            - '[15分钟超时订单占比] <= @mt_fifteen_timeout_ratio_120'
+        - add_cols:
+            - 15分钟超时订单占比得分: 120
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - set_meta_month_column:
+            - month
+
+    - name: mt_advance_reach_score_by_daily_t2
+      sync_result: true
+      cooks:
+        #  表格样式【dc_id, 提前点送达得分,提前点送达率】
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 提前点送达率复合]
+        - df_select: 
+            - '[提前点送达率复合] >= @mt_advance_reach_ratio_000'
+        - add_cols:
+            - 提前点送达率复合得分: 0
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 提前点送达率复合]
+        - df_select:
+            - '[提前点送达率复合] < @mt_advance_reach_ratio_000 & [提前点送达率复合] > @mt_advance_reach_ratio_100'
+        - df_eval:
+            - '[提前点送达率复合得分] = @mt_single_item_score_100 -((@mt_single_item_score_100 - @mt_single_item_score_000)* (@mt_advance_reach_ratio_000 - [提前点送达率复合]) / (@mt_advance_reach_ratio_000 - @mt_advance_reach_ratio_100))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 提前点送达率复合]
+        - df_select:
+            - '[提前点送达率复合] == @mt_advance_reach_ratio_100'
+        - add_cols:
+            - 提前点送达率复合得分: 100
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 提前点送达率复合]
+        - df_select:
+            - '[提前点送达率复合] < @mt_advance_reach_ratio_100 & [提前点送达率复合] > @mt_advance_reach_ratio_120'
+        - df_eval:
+            - '[提前点送达率复合得分] =  @mt_single_item_score_120 - ((@mt_single_item_score_120 - @mt_single_item_score_100)*(@mt_advance_reach_ratio_100 - [提前点送达率复合])/(@mt_advance_reach_ratio_100 - @mt_advance_reach_ratio_120))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 提前点送达率复合]
+        - df_select:
+            - '[提前点送达率复合] <= @mt_advance_reach_ratio_120'
+        - add_cols:
+            - 提前点送达率复合得分: 120
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - set_meta_month_column:
+            - month
+
+  # 不满意率得分
+    - name: mt_unsatisfied_score_by_daily_t2
+      sync_result: true
+      cooks:
+        #  表格样式【dc_id, 不满意率得分,不满意率】
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 不满意率]
+        - df_select: 
+            - '[不满意率] >= @mt_unsatisfied_ratio_000'
+        - add_cols:
+            - 不满意率得分: 0
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 不满意率]
+        - df_select:
+            - '[不满意率] < @mt_unsatisfied_ratio_000 & [不满意率] > @mt_unsatisfied_ratio_100'
+        - df_eval:
+            - '[不满意率得分] = @mt_single_item_score_100 -((@mt_single_item_score_100 - @mt_single_item_score_000)* (@mt_unsatisfied_ratio_000- [不满意率]) / (@mt_unsatisfied_ratio_000 - @mt_unsatisfied_ratio_100))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 不满意率]
+        - df_select:
+            - '[不满意率] == @mt_unsatisfied_ratio_100'
+        - add_cols:
+            - 不满意率得分: 100
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 不满意率]
+        - df_select:
+            - '[不满意率] < @mt_unsatisfied_ratio_100 & [不满意率] > @mt_unsatisfied_ratio_120'
+        - df_eval:
+            - '[不满意率得分] =  @mt_single_item_score_120 - ((@mt_single_item_score_120 - @mt_single_item_score_100)*(@mt_unsatisfied_ratio_100 - [不满意率])/(@mt_unsatisfied_ratio_100 - @mt_unsatisfied_ratio_120))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 不满意率]
+        - df_select:
+            - '[不满意率] <= @mt_unsatisfied_ratio_120'
+        - add_cols:
+            - 不满意率得分: 120
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - set_meta_month_column:
+            - month
+
+    # 配送原因未完成率得分
+    - name: mt_unfinished_score_by_daily_t2
+      sync_result: true
+      cooks:
+        # 表格样式【dc_id, 配送原因未完成率得分,配送原因未完成率】
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 配送原因未完成率]
+        - df_select: 
+            - '[配送原因未完成率] >= @mt_unfinished_ratio_000'
+        - add_cols:
+            - 配送原因未完成率得分: 0
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 配送原因未完成率]
+        - df_select:
+            - '[配送原因未完成率] < @mt_unfinished_ratio_000 & [配送原因未完成率] > @mt_unfinished_ratio_100'
+        - df_eval:
+            - '[配送原因未完成率得分] = @mt_single_item_score_100 -((@mt_single_item_score_100 - @mt_single_item_score_000)* (@mt_unfinished_ratio_000- [配送原因未完成率]) / (@mt_unfinished_ratio_000 - @mt_unfinished_ratio_100))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 配送原因未完成率]
+        - df_select:
+            - '[配送原因未完成率] == @mt_unfinished_ratio_100'
+        - add_cols:
+            - 配送原因未完成率得分: 100
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 配送原因未完成率]
+        - df_select:
+            - '[配送原因未完成率] < @mt_unfinished_ratio_100 & [配送原因未完成率] > @mt_unfinished_ratio_120'
+        - df_eval:
+            - '[配送原因未完成率得分] =  @mt_single_item_score_120 - ((@mt_single_item_score_120 - @mt_single_item_score_100 )*(@mt_unfinished_ratio_100 - [配送原因未完成率])/(@mt_unfinished_ratio_100 - @mt_unfinished_ratio_120))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 配送原因未完成率]
+        - df_select:
+            - '[配送原因未完成率] <= @mt_unfinished_ratio_120'
+        - add_cols:
+            - 配送原因未完成率得分: 120
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - set_meta_month_column:
+            - month
+
+    # 复合准时率考核得分
+    - name: mt_punctual_score_by_daily_t2
+      sync_result: true
+      cooks:
+        #  表格样式【dc_id, 复合准时率考核得分,复合准时率】
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 复合准时率考核]
+        - df_select: 
+            - '[复合准时率考核] <= @mt_punctual_ratio_000'
+        - add_cols:
+            - 复合准时率考核得分: 0
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 复合准时率考核]
+        - df_select:
+            - '[复合准时率考核] < @mt_punctual_ratio_100 & [复合准时率考核] > @mt_punctual_ratio_000'
+        - df_eval:
+            - '[复合准时率考核得分] = @mt_single_item_score_100 - ((@mt_single_item_score_100 - @mt_single_item_score_000)* (@mt_punctual_ratio_100- [复合准时率考核]) / (@mt_punctual_ratio_100 - @mt_punctual_ratio_000))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 复合准时率考核]
+        - df_select:
+            - '[复合准时率考核] == @mt_punctual_ratio_100'
+        - add_cols:
+            - 复合准时率考核得分: 100
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 复合准时率考核]
+        - df_select:
+            - '[复合准时率考核] < @mt_punctual_ratio_120 & [复合准时率考核] > @mt_punctual_ratio_100'
+        - df_eval:
+            - '[复合准时率考核得分] =  @mt_single_item_score_120 - ( (@mt_single_item_score_120 - @mt_single_item_score_100) * (@mt_punctual_ratio_120-[复合准时率考核]) / (@mt_punctual_ratio_120 - @mt_punctual_ratio_100))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_teams_service_quality_by_daily_t2
+            columns: [dc_id, 复合准时率考核]
+        - df_select:
+            - '[复合准时率考核] >= @mt_punctual_ratio_120'
+        - add_cols:
+            - 复合准时率考核得分: 120
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - set_meta_month_column:
+            - month
+
+    # merge
+    - name: mt_dc_parts_score_by_daily_t2
+      sync_result: true
+      cooks:
+        #   形成表格样式【dc_id,15分钟超时订单占比得分,提前点送达得分,不满意率得分,配送原因未完成率得分,复合准时率考核得分,服务质量分】
+        - use_df:
+            key: mt_fifteen_score_by_daily_t2
+            columns: [dc_id,15分钟超时订单占比得分]
+        - stash_push_df: []
+        - use_df:
+            key: mt_advance_reach_score_by_daily_t2
+            columns: [dc_id,提前点送达率复合得分]
+        - stash_push_df: []
+        - use_df:
+            key: mt_unsatisfied_score_by_daily_t2
+            columns: [dc_id,不满意率得分]
+        - stash_push_df: []
+        - use_df:
+            key: mt_unfinished_score_by_daily_t2
+            columns: [dc_id,配送原因未完成率得分]
+        - stash_push_df: []
+        - use_df:
+            key: mt_punctual_score_by_daily_t2
+            columns: [dc_id,复合准时率考核得分]
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            fillna: 0
+            drop_stash: true
+        - df_eval:
+            - '[服务质量分] =  [复合准时率考核得分]* @mt_punctual_weight + [配送原因未完成率得分] * @mt_unfinished_weight + [不满意率得分] * @mt_unsatisfied_weight + [提前点送达率复合得分] * @mt_advance_reach_weight + [15分钟超时订单占比得分]* @mt_fifteen_timeout_weight'
+        - set_meta_month_column:
+            - month
+
+    # 质量星级
+    - name: mt_dc_start_level_by_daily_t2
+      sync_result: true
+      cooks:
+        # 形成表格样式[dc_id,服务质量分,质量星级]
+        - use_df:
+            key: mt_dc_parts_score_by_daily_t2
+            columns: [dc_id,服务质量分]
+        - df_select: 
+            - '[服务质量分] >= @mt_start_level_score_120'
+        - add_cols:
+            - 质量星级: 3星
+        - stash_push_df: []
+        - use_df:
+            key: mt_dc_parts_score_by_daily_t2
+            columns: [dc_id,服务质量分]
+        - df_select: 
+            - '[服务质量分] >= @mt_start_level_score_110 & [服务质量分] <= @mt_start_level_score_120'
+        - add_cols:
+            - 质量星级: 2星
+        - stash_push_df: []
+        - use_df:
+            key: mt_dc_parts_score_by_daily_t2
+            columns: [dc_id,服务质量分]
+        - df_select: 
+            - '[服务质量分] <= @mt_start_level_score_110'
+        - add_cols:
+            - 质量星级: 1星  
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - df_reset_index:
+            drop: true
+        - set_meta_month_column:
+            - month
+
+
+
+mt_month_env:
+  context_defaults:
+    platform_code: meituan
+    play_on_dask_cluster: true
+    delay_compute: true
+    sync_result_from_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+  context_global_vars:
+    # 复合准时率考核
+    mt_punctual_ratio_000: 0.978006
+    mt_punctual_ratio_100: 0.986114
+    mt_punctual_ratio_120: 0.993528
+    # 配送原因未完成率
+    mt_unfinished_ratio_000: 0.002026
+    mt_unfinished_ratio_100: 0.000217
+    mt_unfinished_ratio_120: 0.000076
+    # 不满意率
+    mt_unsatisfied_ratio_000: 0.002026
+    mt_unsatisfied_ratio_100: 0.001282
+    mt_unsatisfied_ratio_120: 0.000217
+    # 提前点送达率(复合)
+    mt_advance_reach_ratio_000: 0.000307
+    mt_advance_reach_ratio_100: 0.000181
+    mt_advance_reach_ratio_120: 0.000157
+    # 15分钟超时订单占比
+    mt_fifteen_timeout_ratio_000: 0.011403
+    mt_fifteen_timeout_ratio_100: 0.007625
+    mt_fifteen_timeout_ratio_120: 0.004425
+    # 得分权重
+    mt_punctual_weight: 0.2
+    mt_unfinished_weight: 0.3
+    mt_unsatisfied_weight: 0.2
+    mt_advance_reach_weight: 0.15
+    mt_fifteen_timeout_weight: 0.15
+    # 各项得分分数线
+    mt_single_item_score_000: 0
+    mt_single_item_score_100: 100
+    mt_single_item_score_120: 120
+    # 星级得分线
+    mt_start_level_score_100: 100
+    mt_start_level_score_110: 110
+    mt_start_level_score_120: 118
+
+  pre_load_dataset:
+    - std_qplus_vendor_dc_map
+    - mt_month_16_std
+
+  #  预计算的数据集
+  play:
+    - name: mt_month_16_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - set_meta_month_column:
+            - month
+
+    # 15分钟超时订单占比得分
+    - name: mt_fifteen_score_by_monthly_month
+      sync_result: true
+      cooks:
+        #  表格样式【dc_id, 15分钟超时订单占比得分,15分钟超时订单占比】
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 15分钟超时订单占比]
+        - df_select: 
+            - '[15分钟超时订单占比] >= @mt_fifteen_timeout_ratio_000'
+        - add_cols:
+            - 15分钟超时订单占比得分: 0
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 15分钟超时订单占比]
+        - df_select:
+            - '[15分钟超时订单占比] < @mt_fifteen_timeout_ratio_000 & [15分钟超时订单占比] > @mt_fifteen_timeout_ratio_100'
+        - df_eval:
+            - '[15分钟超时订单占比得分] = @mt_single_item_score_100 -((@mt_single_item_score_100 - @mt_single_item_score_000)* (@mt_fifteen_timeout_ratio_000 - [15分钟超时订单占比]) / (@mt_fifteen_timeout_ratio_000 - @mt_fifteen_timeout_ratio_100))'
+        - df_reset_index: []   
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 15分钟超时订单占比]
+        - df_select:
+            - '[15分钟超时订单占比] == @mt_fifteen_timeout_ratio_100'
+        - add_cols:
+            - 15分钟超时订单占比得分: 100
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 15分钟超时订单占比]
+        - df_select:
+            - '[15分钟超时订单占比] < @mt_fifteen_timeout_ratio_100 & [15分钟超时订单占比] > @mt_fifteen_timeout_ratio_120'
+        - df_eval:
+            - '[15分钟超时订单占比得分] =  @mt_single_item_score_120 - ((@mt_single_item_score_120 - @mt_single_item_score_100)*(@mt_fifteen_timeout_ratio_100 - [15分钟超时订单占比])/(@mt_fifteen_timeout_ratio_100 - @mt_fifteen_timeout_ratio_120))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 15分钟超时订单占比]
+        - df_select:
+            - '[15分钟超时订单占比] <= @mt_fifteen_timeout_ratio_120'
+        - add_cols:
+            - 15分钟超时订单占比得分: 120
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - set_meta_month_column:
+            - month
+
+    - name: mt_advance_reach_score_by_monthly_month
+      sync_result: true
+      cooks:
+        #  表格样式【dc_id, 提前点送达得分,提前点送达率】
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 提前点送达率复合]
+        - df_select: 
+            - '[提前点送达率复合] >= @mt_advance_reach_ratio_000'
+        - add_cols:
+            - 提前点送达率复合得分: 0
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 提前点送达率复合]
+        - df_select:
+            - '[提前点送达率复合] < @mt_advance_reach_ratio_000 & [提前点送达率复合] > @mt_advance_reach_ratio_100'
+        - df_eval:
+            - '[提前点送达率复合得分] = @mt_single_item_score_100 -((@mt_single_item_score_100 - @mt_single_item_score_000)* (@mt_advance_reach_ratio_000 - [提前点送达率复合]) / (@mt_advance_reach_ratio_000 - @mt_advance_reach_ratio_100))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 提前点送达率复合]
+        - df_select:
+            - '[提前点送达率复合] == @mt_advance_reach_ratio_100'
+        - add_cols:
+            - 提前点送达率复合得分: 100
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 提前点送达率复合]
+        - df_select:
+            - '[提前点送达率复合] < @mt_advance_reach_ratio_100 & [提前点送达率复合] > @mt_advance_reach_ratio_120'
+        - df_eval:
+            - '[提前点送达率复合得分] =  @mt_single_item_score_120 - ((@mt_single_item_score_120 - @mt_single_item_score_100)*(@mt_advance_reach_ratio_100 - [提前点送达率复合])/(@mt_advance_reach_ratio_100 - @mt_advance_reach_ratio_120))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 提前点送达率复合]
+        - df_select:
+            - '[提前点送达率复合] <= @mt_advance_reach_ratio_120'
+        - add_cols:
+            - 提前点送达率复合得分: 120
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - set_meta_month_column:
+            - month
+
+  # 不满意率得分
+    - name: mt_unsatisfied_score_by_monthly_month
+      sync_result: true
+      cooks:
+        #  表格样式【dc_id, 不满意率得分,不满意率】
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 不满意率]
+        - df_select: 
+            - '[不满意率] >= @mt_unsatisfied_ratio_000'
+        - add_cols:
+            - 不满意率得分: 0
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 不满意率]
+        - df_select:
+            - '[不满意率] < @mt_unsatisfied_ratio_000 & [不满意率] > @mt_unsatisfied_ratio_100'
+        - df_eval:
+            - '[不满意率得分] = @mt_single_item_score_100 -((@mt_single_item_score_100 - @mt_single_item_score_000)* (@mt_unsatisfied_ratio_000- [不满意率]) / (@mt_unsatisfied_ratio_000 - @mt_unsatisfied_ratio_100))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 不满意率]
+        - df_select:
+            - '[不满意率] == @mt_unsatisfied_ratio_100'
+        - add_cols:
+            - 不满意率得分: 100
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 不满意率]
+        - df_select:
+            - '[不满意率] < @mt_unsatisfied_ratio_100 & [不满意率] > @mt_unsatisfied_ratio_120'
+        - df_eval:
+            - '[不满意率得分] =  @mt_single_item_score_120 - ((@mt_single_item_score_120 - @mt_single_item_score_100)*(@mt_unsatisfied_ratio_100 - [不满意率])/(@mt_unsatisfied_ratio_100 - @mt_unsatisfied_ratio_120))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 不满意率]
+        - df_select:
+            - '[不满意率] <= @mt_unsatisfied_ratio_120'
+        - add_cols:
+            - 不满意率得分: 120
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - set_meta_month_column:
+            - month
+
+    # 配送原因未完成率得分
+    - name: mt_unfinished_score_by_monthly_month
+      sync_result: true
+      cooks:
+        # 表格样式【dc_id, 配送原因未完成率得分,配送原因未完成率】
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 配送原因未完成率]
+        - df_select: 
+            - '[配送原因未完成率] >= @mt_unfinished_ratio_000'
+        - add_cols:
+            - 配送原因未完成率得分: 0
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 配送原因未完成率]
+        - df_select:
+            - '[配送原因未完成率] < @mt_unfinished_ratio_000 & [配送原因未完成率] > @mt_unfinished_ratio_100'
+        - df_eval:
+            - '[配送原因未完成率得分] = @mt_single_item_score_100 -((@mt_single_item_score_100 - @mt_single_item_score_000)* (@mt_unfinished_ratio_000- [配送原因未完成率]) / (@mt_unfinished_ratio_000 - @mt_unfinished_ratio_100))' 
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 配送原因未完成率]
+        - df_select:
+            - '[配送原因未完成率] == @mt_unfinished_ratio_100'
+        - add_cols:
+            - 配送原因未完成率得分: 100
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 配送原因未完成率]
+        - df_select:
+            - '[配送原因未完成率] < @mt_unfinished_ratio_100 & [配送原因未完成率] > @mt_unfinished_ratio_120'
+        - df_eval:
+            - '[配送原因未完成率得分] =  @mt_single_item_score_120 - ((@mt_single_item_score_120 - @mt_single_item_score_100 )*(@mt_unfinished_ratio_100 - [配送原因未完成率])/(@mt_unfinished_ratio_100 - @mt_unfinished_ratio_120))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 配送原因未完成率]
+        - df_select:
+            - '[配送原因未完成率] <= @mt_unfinished_ratio_120'
+        - add_cols:
+            - 配送原因未完成率得分: 120
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - set_meta_month_column:
+            - month
+
+    # 复合准时率考核得分
+    - name: mt_punctual_score_by_monthly_month
+      sync_result: true
+      cooks:
+        #  表格样式【dc_id, 复合准时率考核得分,复合准时率】
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 复合准时率考核]
+        - df_select: 
+            - '[复合准时率考核] <= @mt_punctual_ratio_000'
+        - add_cols:
+            - 复合准时率考核得分: 0
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 复合准时率考核]
+        - df_select:
+            - '[复合准时率考核] < @mt_punctual_ratio_100 & [复合准时率考核] > @mt_punctual_ratio_000'
+        - df_eval:
+            - '[复合准时率考核得分] = @mt_single_item_score_100 - ((@mt_single_item_score_100 - @mt_single_item_score_000)* (@mt_punctual_ratio_100- [复合准时率考核]) / (@mt_punctual_ratio_100 - @mt_punctual_ratio_000))'    
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 复合准时率考核]
+        - df_select:
+            - '[复合准时率考核] == @mt_punctual_ratio_100'
+        - add_cols:
+            - 复合准时率考核得分: 100
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 复合准时率考核]
+        - df_select:
+            - '[复合准时率考核] < @mt_punctual_ratio_120 & [复合准时率考核] > @mt_punctual_ratio_100'
+        - df_eval:
+            - '[复合准时率考核得分] =  @mt_single_item_score_120 - ( (@mt_single_item_score_120 - @mt_single_item_score_100) * (@mt_punctual_ratio_120-[复合准时率考核]) / (@mt_punctual_ratio_120 - @mt_punctual_ratio_100))'
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 复合准时率考核]
+        - df_select:
+            - '[复合准时率考核] >= @mt_punctual_ratio_120'
+        - add_cols:
+            - 复合准时率考核得分: 120
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - set_meta_month_column:
+            - month
+
+    # merge
+    - name: mt_dc_parts_score_by_monthly_month
+      sync_result: true
+      cooks:
+        #   形成表格样式【dc_id,15分钟超时订单占比得分,提前点送达得分,不满意率得分,配送原因未完成率得分,复合准时率考核得分,服务质量分】
+        - use_df:
+            key: mt_fifteen_score_by_monthly_month
+            columns: [dc_id,15分钟超时订单占比得分]
+        - stash_push_df: []
+        - use_df:
+            key: mt_advance_reach_score_by_monthly_month
+            columns: [dc_id,提前点送达率复合得分]
+        - stash_push_df: []
+        - use_df:
+            key: mt_unsatisfied_score_by_monthly_month
+            columns: [dc_id,不满意率得分]
+        - stash_push_df: []
+        - use_df:
+            key: mt_unfinished_score_by_monthly_month
+            columns: [dc_id,配送原因未完成率得分]
+        - stash_push_df: []
+        - use_df:
+            key: mt_punctual_score_by_monthly_month
+            columns: [dc_id,复合准时率考核得分]
+        - stash_push_df: []
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            fillna: 0
+            drop_stash: true
+        - df_eval:
+            - '[服务质量分] =  [复合准时率考核得分]* @mt_punctual_weight + [配送原因未完成率得分] * @mt_unfinished_weight + [不满意率得分] * @mt_unsatisfied_weight + [提前点送达率复合得分] * @mt_advance_reach_weight + [15分钟超时订单占比得分]* @mt_fifteen_timeout_weight'
+        - set_meta_month_column:
+            - month
+
+    # 质量星级
+    - name: mt_dc_start_level_by_monthly_month
+      sync_result: true
+      cooks:
+        # 形成表格样式[dc_id,服务质量分,质量星级]
+        - use_df:
+            key: mt_dc_parts_score_by_monthly_month
+            columns: [dc_id,服务质量分]
+        - df_select: 
+            - '[服务质量分] >= @mt_start_level_score_120'
+        - add_cols:
+            - 质量星级: 3星
+        - stash_push_df: []
+        - use_df:
+            key: mt_dc_parts_score_by_monthly_month
+            columns: [dc_id,服务质量分]
+        - df_select: 
+            - '[服务质量分] >= @mt_start_level_score_110 & [服务质量分] <= @mt_start_level_score_120'
+        - add_cols:
+            - 质量星级: 2星
+        - stash_push_df: []
+        - use_df:
+            key: mt_dc_parts_score_by_monthly_month
+            columns: [dc_id,服务质量分]
+        - df_select: 
+            - '[服务质量分] <= @mt_start_level_score_110'
+        - add_cols:
+            - 质量星级: 1星  
+        - stash_push_df: []
+        - stash_concat_df: 
+            drop_stash: True
+        - df_reset_index:
+            drop: true
+        - set_meta_month_column:
+            - month
+  

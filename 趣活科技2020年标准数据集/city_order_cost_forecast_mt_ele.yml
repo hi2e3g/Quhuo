@@ -1,0 +1,209 @@
+mt_ele_daily_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+  pre_load_dataset:
+
+  play:
+    # 测算饿了么城市单均成本(暂定取历史月份单成本)
+#     - name: ele_city_per_order_cost_median_forecast
+#       sync_result: true
+#       cooks:
+#         - fetch_dataset:
+#             dataset_type_code: ele_city_per_order_cost_median_month
+#             dataset_cate: std
+#             month_offset: -1
+#             ignore_null_error: true
+# #            columns: [city_code, supplier_id, 城市单成本_median,城市工资单成本_median]
+
+#         - when_empty_fetch_dataset:
+#             dataset_type_code: ele_city_per_order_cost_median_forecast
+#             dataset_cate: std
+#             month_offset: -1
+#             ignore_null_error: true
+#            columns: [city_code, supplier_id, 城市单成本_median,城市工资单成本_median]
+  ### 根据上个月的数据计算ele相应的城市工资单成本_median
+    - name: ele_city_per_order_cost_median_forecast
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: cost_revenue_business_dc
+            dataset_cate: std
+            month_offset: -1
+            columns: [dc_id, supplier_id, city_code, platform_code ,settlement_order_quantity_first,knight_wages]
+            ignore_null_error: true
+            empty_df_record:
+              dc_id: '-'
+              city_code: '-'
+              supplier_id: '-'
+              assets_income: 0
+              settlement_order_quantity_first: 0
+              knight_wages: 0
+            rename:
+              settlement_order_quantity_first: 结算单量
+              knight_wages: 骑士工资
+
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: elem
+
+        - df_fillna:
+            columns: [结算单量,骑士工资]
+            value: 0.0
+
+        - run_py:
+            - |
+              df = to_df(df)
+              df[u'工资单成本'] = 0
+              df.loc[df.loc[:,u'结算单量'] > 0,u'工资单成本'] =  (df[u'骑士工资']/100)/df[u'结算单量']
+              result = df
+        - df_groupby:
+            by: [ supplier_id, city_code ]
+        - df_median:
+            column: 工资单成本
+        - df_reset_index: [ ]
+
+        - df_select:
+            - '[工资单成本] != 0'
+
+        - df_rename_columns:
+            - 工资单成本: 城市工资单成本_median
+
+        - set_meta_month_column:
+            - month
+        - stash_push_df: []
+
+        - fetch_dataset:
+            dataset_type_code: ele_city_per_order_cost_median_month
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [city_code, supplier_id, 城市单成本_median]
+
+        - when_empty_fetch_dataset:
+            dataset_type_code: ele_city_per_order_cost_median_forecast
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [city_code, supplier_id, 城市单成本_median]
+
+        - stash_push_df: []
+        - stash_join_df:
+            on: [city_code,supplier_id]
+            how: left
+            drop_stash: true
+
+
+
+    # 测算美团城市单均成本(暂定取历史月份单成本)
+    - name: mt_city_per_order_cost_median_forecast
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: mt_city_per_order_cost_median_month
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+#            columns: [city_code, supplier_id, 城市单成本_median,城市工资单成本_median]
+
+        - when_empty_fetch_dataset:
+            dataset_type_code: mt_city_per_order_cost_median_forecast
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+#            columns: [city_code, supplier_id, 城市单成本_median,城市工资单成本_median]
+### 根据上个月的数据计算相应的mt城市工资单成本_median
+
+    - name: mt_city_per_order_cost_median_forecast
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: cost_revenue_business_dc
+            dataset_cate: std
+            month_offset: -1
+            columns: [ dc_id, supplier_id, city_code, platform_code ,settlement_order_quantity_first,knight_wages ]
+            ignore_null_error: true
+            empty_df_record:
+              dc_id: '-'
+              city_code: '-'
+              supplier_id: '-'
+              assets_income: 0
+              settlement_order_quantity_first: 0
+              knight_wages: 0
+            rename:
+              settlement_order_quantity_first: 结算单量
+              knight_wages: 骑士工资
+
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: meituan
+
+        - df_fillna:
+            columns: [ 结算单量,骑士工资 ]
+            value: 0.0
+
+        - run_py:
+            - |
+              df = to_df(df)
+              df[u'工资单成本'] = 0
+              df.loc[df.loc[:,u'结算单量'] > 0,u'工资单成本'] =  (df[u'骑士工资']/100)/df[u'结算单量']
+              result = df
+        - df_groupby:
+            by: [ supplier_id, city_code ]
+        - df_median:
+            column: 工资单成本
+        - df_reset_index: [ ]
+
+        - df_select:
+            - '[工资单成本] != 0'
+
+        - df_rename_columns:
+            - 工资单成本: 城市工资单成本_median
+
+        - set_meta_month_column:
+            - month
+        - stash_push_df: [ ]
+        - fetch_dataset:
+            dataset_type_code: mt_city_per_order_cost_median_month
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [city_code, supplier_id, 城市单成本_median]
+
+        - when_empty_fetch_dataset:
+            dataset_type_code: mt_city_per_order_cost_median_forecast
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [city_code, supplier_id, 城市单成本_median]
+        
+        - stash_push_df: [ ]
+        - stash_join_df:  
+            on: [ city_code,supplier_id ]
+            how: left
+            drop_stash: true
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

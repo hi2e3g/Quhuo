@@ -1,0 +1,122 @@
+mt_ele_daily_env:
+  context_defaults:
+    delay_compute: true
+    sync_result_from_cluster: true
+    play_on_dask_cluster: true
+    dask_client_set_as_default: true
+    cluster_client_address: tcp://172.31.54.193:8786
+
+  #  预计算的数据集
+  ##### modified at 20201118
+  play:
+    # 计算饿了么当月城市单成本
+    - name: ele_city_per_order_cost_median_month
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: cost_revenue_business_dc
+            dataset_cate: std
+            columns: [dc_id, supplier_id, city_code, platform_code ,assets_income, settlement_order_quantity_first,knight_wages]
+            ignore_null_error: true
+            empty_df_record:
+              dc_id: '-'
+              city_code: '-'
+              supplier_id: '-'
+              assets_income: 0
+              settlement_order_quantity_first: 0
+              knight_wages: 0
+            rename:
+              assets_income: 骑士成本
+              settlement_order_quantity_first: 结算单量
+              knight_wages: 骑士工资
+
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: elem
+
+        - df_fillna:
+            columns: [骑士成本,结算单量,骑士工资]
+            value: 0.0
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'单成本'] = 0
+                df[u'工资单成本'] = 0
+                df.loc[df.loc[:,u'结算单量'] > 0,u'单成本'] =  (df[u'骑士成本']/100)/df[u'结算单量']
+                df.loc[df.loc[:,u'结算单量'] > 0,u'工资单成本'] =  (df[u'骑士工资']/100)/df[u'结算单量']
+                result = df
+        - df_groupby:
+            by: [supplier_id, city_code]
+        - df_median:
+            column: [单成本,工资单成本]
+        - df_reset_index: []
+
+        - df_select:
+            - '[单成本] != 0'
+
+        - df_rename_columns:
+            - 单成本: 城市单成本_median
+              工资单成本: 城市工资单成本_median
+
+        - set_meta_month_column:
+            - month
+     
+
+
+    # 计算美团当月城市单成本
+    - name: mt_city_per_order_cost_median_month
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: cost_revenue_business_dc
+            dataset_cate: std
+            columns: [dc_id, supplier_id, city_code, platform_code ,assets_income, settlement_order_quantity_first,knight_wages]
+            ignore_null_error: true
+            empty_df_record:
+              dc_id: '-'
+              city_code: '-'
+              supplier_id: '-'
+              assets_income: 0
+              settlement_order_quantity_first: 0
+              knight_wages: 0
+            rename:
+              assets_income: 骑士成本
+              settlement_order_quantity_first: 结算单量
+              knight_wages: 骑士工资
+
+        - df_select:
+            - 'platform_code == @p1'
+            - p1: meituan
+
+        - df_fillna:
+            columns: [骑士成本,结算单量,骑士工资]
+            value: 0.0
+
+        - run_py:
+            - |
+                df = to_df(df)
+                df[u'单成本'] = 0
+                df[u'工资单成本'] = 0
+                df.loc[df.loc[:,u'结算单量'] > 0,u'单成本'] =  (df[u'骑士成本']/100)/df[u'结算单量']
+                df.loc[df.loc[:,u'结算单量'] > 0,u'工资单成本'] =  (df[u'骑士工资']/100)/df[u'结算单量']
+                result = df
+        - df_groupby:
+            by: [supplier_id, city_code]
+        - df_median:
+            column: [单成本,工资单成本]
+        - df_reset_index: []
+
+        - df_select:
+            - '[单成本] != 0'
+
+        - df_rename_columns:
+            - 单成本: 城市单成本_median
+              工资单成本: 城市工资单成本_median
+
+        - set_meta_month_column:
+            - month
+       
+
+
+
