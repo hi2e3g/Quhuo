@@ -1,0 +1,62 @@
+import os
+import pandas as pd
+from pandas import DataFrame as df
+import dask.dataframe as dd
+import zipfile
+
+
+
+def check_file(path):
+    out_put, all_size = df(), 0
+    for w in os.walk(path):
+        # w 相当于root, dirs,files.thus w[2]=files
+        for f in w[2]:
+            # file_name is file's path
+            file_name = os.path.join(w[0],f)
+            # splitext divide the target into two parts by name and suffix
+            way_name, typ = os.path.splitext(file_name)
+
+            if typ == '.csv':
+                _file = dd.read_csv(file_name)
+                out_put = dd.concat([out_put, _file])
+            else:
+                _file = df()
+            print(file_name)
+    return out_put
+
+
+def compute_order(_df):
+    _df = _df[
+        (_df['详情'] != '异常单-用户取消') &
+        (_df['详情'] != '异常单-配送超时，系统标记异常') &
+        (_df['详情'] != '异常单-用户退单') &
+        (_df['详情'] != '异常单-用户地址错误') &
+        (_df['详情'] != '异常单-用户不接电话') &
+        (_df['详情'] != '异常单-超出服务范围')
+    ]
+    _df = _df[['团队ID', '团队名称', '骑手ID', '骑手名称', '运单号']]
+    out_df = _df.groupby(['团队ID', '团队名称', '骑手ID', '骑手名称']).count()
+    return out_df
+
+
+def check_zip(path):
+    for w in os.walk(path):
+        for f in w[2]:
+            file_name = w[0] + '\\' + f
+            way_name, typ = os.path.splitext(file_name)
+            if typ == '.zip':
+                print(file_name)
+                extracting = zipfile.ZipFile(file_name)
+                extracting.extractall(way_name)
+
+if __name__ == '__main__':
+    #数据源是配送费，可以是压缩包，可以直接是文件
+    read_path = r'F:\111111111'
+    output_path = 'E:\\关佩文任务\\每月最后一个周五提供任思敏数据\\3月饿了么骑手单量统计.csv'
+    check_zip(read_path)
+    # 再解压一遍便，如果是双层压缩
+    check_zip(read_path)
+    files = check_file(read_path)
+    out_df = compute_order(files).compute()
+    out_df.rename(columns=({'运单号': '完成单量'}), inplace=True)
+    out_df.to_csv(output_path)
