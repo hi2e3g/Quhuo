@@ -1,0 +1,860 @@
+import pandas as pd
+import os
+import xlrd
+import xlsxwriter
+import logging
+import json
+# 数据清洗函数：用于处理源数据的格式
+def clear_data(df):
+    df = df.applymap(lambda x: str(x).strip('"'))
+    df = df.applymap(lambda x: str(x).strip('='))
+    df = df.applymap(lambda x: str(x).strip('"'))
+    df = df.applymap(lambda x: str(x).strip('——'))
+    df = df.applymap(lambda x: str(x).strip("'"))
+    if '团队ID' in df.columns:
+        df = df.rename(columns={"团队ID": "站点ID"})
+    if '骑手id' in df.columns:
+        df = df.rename(columns={"骑手id": "骑手ID"})
+    return df
+
+
+# login判断登录
+def login():
+    with open('data.json', 'r') as f:
+        res = json.load(f)
+    while True:
+        new = []
+        user_name = input('user_name:')
+        user_pwd = input('user_pwd:')
+        flag = 0
+        # flag: 0表示该用户不存在 1表示用户存在密码正确 2表示用户名存在，但是被锁定或密码错误
+        for user in res:
+            if user['usr'] == user_name:
+                flag = 2
+                if user['pwd'] == user_pwd:
+                    if user['lock'] == 1:
+                        print('you have been locked')
+                    else:
+                        flag = 1
+                        user['cnt'] = 0
+                        print("welcome to file")
+                else:
+                    if user['lock'] == 1:
+                        print('you have been locked')
+                    else:
+                        user['cnt'] = user['cnt'] + 1
+                        # 如果user输入密码三次 锁定用户
+                        if user['cnt'] == 3:
+                            user['lock'] = 1
+            new.append(user)
+        # 文件中更新帐户数据
+        with open('data.json', 'w') as f:
+            json.dump(new, f)
+        if flag == 1:
+            break
+        if flag == 0:
+            print("this user is not exist")
+# 获取时间函数：用于取得日期中的时间部分。 9：30==》930
+def time_int(x):
+    a = x.split(':')[:-1]
+    b = int(''.join(a))
+    return b
+# Json文档
+def utilize():
+    data = [{'usr': 'guanpeiwen', 'pwd': 'quhuo', 'lock': 0, 'cnt': 0}]
+    with open('data.json', 'w') as f:
+        json.dump(data, f)
+
+
+# 执行日志
+# arguments 传递一个可变参数列表给函数实参
+# keyword arguments将一个可变的关键字参数的字典传给函数实参
+def use_logging(func):
+    def wrapper(*args, **kwargs):
+        logging.warning("%s is running" % func.__name__)
+        return func(*args)
+    return wrapper
+
+
+# csv格式表格合并函数
+def csv_merge(path):
+    filename_csv = []
+    # 新建列表，存放每个文件数据框（每一个excel读取后存放在数据框）
+    frames = []
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            filename_csv.append(os.path.join(root, file))
+            df = pd.read_csv(os.path.join(root, file))
+            frames.append(df)
+        # 合并所有数据
+        result = pd.concat(frames)
+        return result
+
+
+# excel格式表格合并函数
+def excel_merge(path):
+    filename_excel = []
+    # 新建列表，存放每个文件数据框（每一个excel读取后存放在数据框）
+    frames = []
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            filename_excel.append(os.path.join(root, file))
+            df = pd.read_excel(os.path.join(root, file))
+            frames.append(df)
+        # 合并所有数据
+        result = pd.concat(frames)
+        return result
+
+# 欺诈单df生成
+# 下载 ele_month_37_std_cheat 从数据中台，把文件保存到本脚本同路径下
+path_ele_month_37_std_cheat=".\\ele_month_37_std_cheat.xlsx"
+ele_month_37_std_cheat=pd.read_excel(path_ele_month_37_std_cheat)
+ele_month_37_std_cheat['运单号'] = ele_month_37_std_cheat['运单号'].astype('str')
+ele_month_37_std_cheat= clear_data(ele_month_37_std_cheat)
+
+# 数据中台生成的薪资中间表，用于后期比较核对。目前是12个表
+# 下载中间表,保存在本脚本路径下
+path1_ele_comment_good_order_monthly=".\\ele_comment_good_order_monthly.xlsx"
+path2_ele_orderdetails_good_order_monthly=".\\ele_orderdetails_good_order_monthly.xlsx"
+path3_ele_order_time_monthly=".\\ele_order_time_monthly.xlsx"
+path4_ele_deliverydetails_overtime_order_monthly=".\\ele_deliverydetails_overtime_order_monthly.xlsx"
+path5_ele_deliveryfee_overtime_order_monthly=".\\ele_deliveryfee_overtime_order_monthly.xlsx"
+path6_ele_KPI_overtime_order_monthly=".\\ele_KPI_overtime_order_monthly.xlsx"
+path7_ele_forfeit_order_monthly=".\\ele_forfeit_order_monthly.xlsx"
+path8_ele_order_num_allowance_monthly=".\\ele_order_num_allowance_monthly.xlsx"
+path9_ele_refund_order_monthly=".\\ele_refund_order_monthly.xlsx"
+path10_ele_servicecomment_bad_order_monthly=".\\ele_servicecomment_bad_order_monthly.xlsx"
+path11_ele_KPI_bad_order_monthly=".\\ele_KPI_bad_order_monthly.xlsx"
+
+# XLrd方法和Xlsxwriter方法用于合并一个文件夹下的多个文件，同时每个文件多个sheet
+# 20BKPI管理-站点指标明细-问题单的合并
+# excel读取函数
+class Xlrd():
+    def __init__(self, path):
+        self.datavalue = []
+        self.path = path
+
+        # 打开一个Excel文件，创建一个工作簿对象；
+
+    def open_xlsx(self, fl):
+        fh = xlrd.open_workbook(fl)
+        return fh
+
+    # 获取sheet表的个数；
+    def get_sheet_num(self, fh):
+        x = len(fh.sheets())
+        return x
+
+    def get_file_content(self, file, shnum):
+        fh = self.open_xlsx(file)
+        table = fh.sheets()[shnum]
+        num = table.nrows
+
+        for row in range(num):
+            rdata = table.row_values(row)
+            if rdata == ['考核周期时间', '考核周期名称', '问题单类型', '运单号', '下单时间', '问题单时间', '团队名称', '商家名称', '网格名称', '骑手姓名', '骑手手机号']:
+                pass
+            else:
+                self.datavalue.append(rdata)
+        return self.datavalue
+
+    def get_allxls(self):
+        allxls = []
+        for path, dirs, files in os.walk(self.path):
+            for file in files:
+                allxls.append(os.path.join(path, file))
+        return allxls
+
+    def return_rvalue(self):
+        for fl in self.get_allxls():
+
+            fh = self.open_xlsx(fl)
+            x = self.get_sheet_num(fh)
+            for shnum in range(x):
+    # print("正在读取文件："+str(fl)+"的第"+str(shnum)+"个sheet表的内容...")
+                rvalue = self.get_file_content(fl, shnum)
+        return rvalue
+
+
+class Xlsxwriter():
+
+    def __init__(self, endfile, rvalue):
+        self.endfile = endfile
+        self.rvalue = rvalue
+
+    def save_data(self):
+        wb1 = xlsxwriter.Workbook(self.endfile)
+        # 创建一个sheet工作对象；
+        # 给文件添加表头；
+        ws = wb1.add_worksheet("merge")
+        headings = ['考核周期时间', '考核周期名称', '问题单类型', '运单号', '下单时间', '问题单时间', '团队名称', '商家名称', '网格名称', '骑手姓名', '骑手手机号']
+        bold = wb1.add_format({'bold': 1})
+        ws.write_row('A1', headings, bold)
+        for a in range(len(self.rvalue)):
+            for b in range(len(self.rvalue[a])):
+                c = self.rvalue[a][b]
+                # 因为给文件添加了表头，因此，数据从下一行开始写入；
+                ws.write(a + 1, b, c)
+        wb1.close()
+        print("20BKPI管理-站点指标明细-问题单：合并完成")
+
+
+    # 加盟商ID对应城市的字典
+city_code = {
+    '14645396': '昆明',
+    '14645473': '佛山',
+    '14645609': '南宁',
+    '14645680': '潍坊',
+    '14646021': '北京',
+    '14646034': '郑州',
+    '14646293': '齐齐哈尔',
+    '14646366': '苏州',
+    '14646427': '无锡',
+    '14646482': '大连',
+    '14646726': '沈阳',
+    '14647005': '深圳',
+    '14647216': '上海',
+    '14648152': '常州',
+    '15049154': '长沙',
+    '20000037': '东莞',
+    '20000060': '呼和浩特',
+    '20006586': '赤峰',
+    '20008674': '兰州',
+    '20010506': '嘉兴',
+    '20015137': '包头',
+    '20042290': '安阳',
+    '20044106': '开封',
+    '20045282': '商丘',
+    '20047386': '吉林',
+    '20049978': '盐城',
+    '20049994': '哈尔滨',
+    '20059018': '江门',
+    '20059082': '鞍山',
+    '20070995': '佳木斯',
+    '20080803': '贵阳',
+    '20090955': '南阳',
+    '20127283': '大庆',
+    '20152283': '重庆',
+    '20172211': '福州',
+    '20170939': '天津',
+    '20178707': '长春',
+    '20215635': '鄂尔多斯'
+}
+
+
+
+# 源文件加工，生成对应城市中间表
+###=======================================================###
+    ## 服务奖惩评价的好评：ele_comment_good_order_monthly ##
+###=======================================================###
+# check method has been done
+class Ele_comment_good_order_monthly:
+
+    def __init__(self,path_ele_comment_good_order_monthly,path_ele_month_57_std):
+        self.path_ele_comment_good_order_monthly=path_ele_comment_good_order_monthly
+        self.path_ele_month_57_std=path_ele_month_57_std
+        self.table_create(path_ele_comment_good_order_monthly,path_ele_month_57_std)
+    def table_create(self,path_ele_comment_good_order_monthly,path_ele_month_57_std):
+        comment_df=excel_merge(path_ele_comment_good_order_monthly)
+        comment_df=clear_data(comment_df)
+        comment_good_order_ele_month_59_std = comment_df[comment_df['评价等级'] == '非常满意']
+        comment_good_order_ele_month_59_std = comment_good_order_ele_month_59_std[comment_good_order_ele_month_59_std['判定状态'] != '无效']
+        comment_good_order_ele_month_59_std = comment_good_order_ele_month_59_std[comment_good_order_ele_month_59_std['申述状态'] != '二审通过']
+        comment_good_order_ele_month_57_std = csv_merge(path_ele_month_57_std)
+        comment_good_order_ele_month_57_std = comment_good_order_ele_month_57_std[["运单号","运单送达时间"]]
+        comment_good_order_ele_month_57_std = clear_data(comment_good_order_ele_month_57_std)
+        df=pd.merge(comment_good_order_ele_month_59_std,comment_good_order_ele_month_57_std,on="运单号",how="left")
+        df[u'送达时间_dt'] = pd.to_datetime(df[u'运单送达时间'])
+        df[u'评价时间_dt'] = pd.to_datetime(df[u'评价日期'])
+        df[u'评价间隔_dt'] = df[u'评价时间_dt'] - df[u'送达时间_dt']
+        df[u'评价间隔_res'] = df[u'评价间隔_dt'].dt.days * 24 + df[u'评价间隔_dt'].dt.seconds / 3600
+        df=pd.merge(df,ele_month_37_std_cheat,on="运单号",how="left")
+        df.to_excel(".\\核对ele_comment_good_order_monthly.xlsx", index=False)
+        self.check(df,path1_ele_comment_good_order_monthly,path_ele_comment_good_order_monthly)
+    # 核对列总数，抽检行
+    # 注意：源数据的路径应该是文件夹，最后一项应该是“城市”
+    def check(self,df,path1_ele_comment_good_order_monthly,path_ele_comment_good_order_monthly):
+        # read the middle table created by Server
+        ele_comment_good_order_monthly = pd.read_excel(path1_ele_comment_good_order_monthly)
+        # 需要核对的城市
+        res=path_ele_comment_good_order_monthly.split("\\")
+        print(res[-1])
+        middle=ele_comment_good_order_monthly[ele_comment_good_order_monthly["下载城市"]==res[-1]]
+        if (df["运单号"].count() == middle["运单号"].count()):
+            print("通过运单号查看行数是一致的")
+        else:
+            print("通过运单号查看行数是不一致的")
+        #抽检一部分运单
+        df=clear_data(df)
+        middle=clear_data(middle)
+        df_id_sample = df["运单号"].sample(random_state=1, frac=0.05)
+        df_id_sample = df_id_sample.values.tolist()
+
+        for i in df_id_sample:
+            first_three_df = str(df[df["运单号"] == i]["评价间隔_res"])
+            first_three_df = first_three_df[-1]
+            first_three_middle = str(middle[middle["运单号"] == i]["评价间隔_res"])
+            first_three_middle = first_three_middle[-1]
+            if (first_three_df[0:3] == first_three_middle[0:3]):
+                continue
+            else:
+                print("该运单号对应的信息错误", i)
+        print("抽查5%运单核对完成，未发现其他问题")
+###=======================================================###
+    ## 运单详情中的好评单:ele_orderdetails_good_order_monthly
+###=======================================================###
+class Ele_orderdetails_good_order_monthly:
+
+    def __init__(self,path_ele_orderdetails_good_order_monthly):
+        self.path_ele_orderdetails_good_order_monthly=path_ele_orderdetails_good_order_monthly
+        self.table_create(path_ele_orderdetails_good_order_monthly)
+    def table_create(self,path_ele_orderdetails_good_order_monthly):
+        good_delivery=csv_merge(path_ele_orderdetails_good_order_monthly)
+        good_delivery = clear_data(good_delivery)
+        good_delivery = good_delivery[["骑手ID", "站点ID", "运单送达时间", "运单号", "用户评价状态"]]
+        good_delivery = good_delivery[good_delivery['用户评价状态'] == '非常满意']
+        df=pd.merge(good_delivery,ele_month_37_std_cheat,on="运单号",how="left")
+        df.to_excel(".\\核对ele_orderdetails_good_order_monthly.xlsx",index=False)
+
+    def check(self,df,path2_ele_orderdetails_good_order_monthly):
+        ele_orderdetails_good_order_monthly = pd.read_excel(path2_ele_orderdetails_good_order_monthly)
+        # 填写需要核对的城市
+        middle=ele_orderdetails_good_order_monthly[ele_orderdetails_good_order_monthly["下载城市"]=="安阳"]
+        print(middle.head(5))
+        if (df["运单号"].count() == middle["运单号"].count()):
+            print("Right")
+        else:
+            print("Wrong")
+
+
+###=======================================================###
+      ## 完成单量表：ele_order_num_allowance_monthly
+###=======================================================###
+@use_logging
+class Ele_order_num_allowance_monthly:
+
+    def __init__(self,path_ele_order_num_allowance_monthly):
+        self.path_ele_order_num_allowance_monthly=path_ele_order_num_allowance_monthly
+        self.table_create(path_ele_order_num_allowance_monthly)
+
+    @use_logging
+    def table_create(self,path):
+        ele_month_58_std_complete_order = csv_merge(path)
+        ele_month_58_std_complete_order = ele_month_58_std_complete_order[ele_month_58_std_complete_order.业务类型 == "配送收入"]
+        ele_month_58_std_complete_order = ele_month_58_std_complete_order[ele_month_58_std_complete_order.详情.isin(['差评', '完成单', '完成单-超时'])]
+        # 生成ele_month_58_std_complete_order
+        df=ele_month_58_std_complete_order
+        df["运单号"] = [str(x).strip("'") for x in df["运单号"]]
+        df["time_segment_no"] = -1
+        # STR格式修改
+        df = df.rename(columns={"团队ID": "站点ID"})
+        df = df.rename(columns={"账单时间": "日期"})
+        df['骑手ID'] = df['骑手ID'].astype('str')
+        df['时间'] = df['业务交易时间'].str.split(' ', expand=True)[1].copy()
+        df['业务交易时间_time'] = df['时间'].apply(time_int).copy()
+        df[u'time_segment_no'] = (df['业务交易时间_time'] % 100 + df['业务交易时间_time'] // 100 * 60) // 30 + 1
+        df[u'time_segment_no'] = df[u'time_segment_no'].astype(int)
+        # 匹配欺诈单
+        ele_month_37_std_cheat = pd.read_excel(path_ele_month_37_std_cheat)
+        ele_month_37_std_cheat = clear_data(ele_month_37_std_cheat)
+        ele_month_37_std_cheat = ele_month_37_std_cheat.drop_duplicates()
+        df1 = pd.merge(df, ele_month_37_std_cheat, on='运单号', how='left')
+        ele_order_num_allowance_monthly = df1[
+            ["站点ID", "骑手ID", "订单号", "日期", "时段补贴", "距离补贴", "重量补贴", "欺诈单", "加盟商ID"]]
+        df = ele_order_num_allowance_monthly[ele_order_num_allowance_monthly.欺诈单 != "欺诈单"]
+        df.to_excel(r"C:\Users\quhuo\Desktop\饿了么中间表任务\1.xlsx")
+        df['站点ID'] = df['站点ID'].astype('str').copy()
+        df['骑手ID'] = df['骑手ID'].astype('str').copy()
+        order_num = df.groupby(["日期", '骑手ID', '站点ID', "加盟商ID"])['订单号'].agg('count').reset_index()
+        order_num = order_num.rename(columns={'订单号': '完成单量'})
+        allowance = df.groupby(["日期", '骑手ID', '站点ID', "加盟商ID"])['时段补贴', '距离补贴', '重量补贴'].agg('sum').reset_index()
+
+        df_merge_1 = pd.merge(order_num, allowance, how='left', on=['骑手ID', '站点ID', "加盟商ID", "日期"])
+
+        df_merge_1["出勤天数"] = 1
+        allowance = df_merge_1.groupby(['骑手ID', '站点ID', "加盟商ID"])['完成单量', '时段补贴', '距离补贴', '重量补贴', '出勤天数'].agg(
+            'sum').reset_index()
+        allowance['加盟商ID'] = allowance['加盟商ID'].astype('str').copy()
+        ele_order_num_allowance_monthly = allowance
+        # 可以根据自己城市修改下面的名字
+        ele_order_num_allowance_monthly.to_excel(".\\核对ele_order_num_allowance_monthly.xlsx",index=False)
+        self.check(path8_ele_order_num_allowance_monthly,allowance)
+
+    @use_logging
+    # 核对函数，此表方法暂定为各列加和比较，抽检5%骑手安行比较
+    def check(self,path8_ele_order_num_allowance_monthly,allowance):
+        df = pd.read_excel(path8_ele_order_num_allowance_monthly)
+        df['加盟商ID'] = df['加盟商ID'].astype('str').copy()
+        df['骑手ID'] = df['骑手ID'].astype('str').copy()
+        df = df[df["加盟商ID"] == str(allowance['加盟商ID'][1])]
+        if (df["完成单量"].sum() == allowance['完成单量'].sum()):
+            print("完成单量: right")
+        else:
+            print("完成单量: wrong")
+        if (df["时段补贴"].sum() == allowance['时段补贴'].sum()):
+            print("时段补贴: right")
+        else:
+            print("时段补贴: wrong")
+        if (df["距离补贴"].sum() == allowance['距离补贴'].sum()):
+            print("距离补贴: right")
+        else:
+            print("距离补贴: wrong")
+        if (df["重量补贴"].sum() == allowance['重量补贴'].sum()):
+            print("重量补贴: right")
+        else:
+            print("重量补贴: wrong")
+        df_id_sample=df["骑手ID"].sample(random_state=1,frac=0.05)
+        df_id_sample=df_id_sample.values.tolist()
+
+        df_sample=df[df["骑手ID"].isin(df_id_sample)]
+        # print(df_sample)
+        ele_order_num_allowance_monthly_sample=allowance[allowance["骑手ID"].isin(df_id_sample)]
+        # print(ele_order_num_allowance_monthly_sample)
+        if (df_sample["完成单量"].sum()==ele_order_num_allowance_monthly_sample["完成单量"].sum()):
+            if (df_sample["时段补贴"].sum()==ele_order_num_allowance_monthly_sample["时段补贴"].sum()):
+                if (df_sample["距离补贴"].sum()==ele_order_num_allowance_monthly_sample["距离补贴"].sum()):
+                    if (df_sample["重量补贴"].sum()==ele_order_num_allowance_monthly_sample["重量补贴"].sum()):
+                        print("随机抽取5%骑手：无差异")
+        else:
+            print("随机抽取5%骑手：有差异")
+
+
+
+###=======================================================###
+    ## 配送费超时:ele_deliveryfee_overtime_order_monthly
+###=======================================================###
+class Ele_deliveryfee_overtime_order_monthly:
+
+    def __init__(self,path_ele_deliveryfee_overtime_order_monthly):
+        self.path_ele_deliveryfee_overtime_order_monthly=path_ele_deliveryfee_overtime_order_monthly
+        self.table_create(path_ele_deliveryfee_overtime_order_monthly)
+
+    def table_create(self,path_deliveryfee_overtime_order_monthly):
+        df=csv_merge(path_deliveryfee_overtime_order_monthly)
+        df = clear_data(df)
+        df = df[["运单号","业务类型", "骑手ID", "站点ID","详情","加盟商ID"]]
+        df = df[df['业务类型'] == '配送收入']
+        df = df[df['详情'] == '完成单-超时']
+        df=pd.merge(df,ele_month_37_std_cheat,on="运单号",how="left")
+        df.to_excel(".\\核对ele_deliveryfee_overtime_order_monthly.xlsx",index=False)
+
+    def check(self,df):
+        pass
+
+
+###=======================================================###
+      ## KPI超时:ele_KPI_overtime_order_monthly
+###=======================================================###
+class Ele_KPI_overtime_order_monthly:
+
+    def __init__(self,path_ele_KPI_overtime_order_monthly,path):
+        self.path_ele_KPI_overtime_order_monthly=path_ele_KPI_overtime_order_monthly
+        self.path=path
+        self.table_create(path_ele_KPI_overtime_order_monthly,path)
+
+    def table_create(self,path_ele_KPI_overtime_order_monthly,path):
+        # 多个sheets表格合并
+        xl = Xlrd(path_ele_KPI_overtime_order_monthly)
+        rvalue = xl.return_rvalue()
+        endfile = path_ele_KPI_overtime_order_monthly + "\\concat.xlsx"
+        write = Xlsxwriter(endfile, rvalue)
+        write.save_data()
+        df_kpi = pd.read_excel(endfile)
+        # os.remove(endfile)
+        df_kpi = clear_data(df_kpi)
+        df_kpi = df_kpi[["运单号", "问题单类型"]]
+        df_peisongfei=csv_merge(path)
+        df_peisongfei = clear_data(df_peisongfei)
+        df_peisongfei=df_peisongfei[["运单号", "加盟商ID", "骑手ID", "站点ID"]]
+        df_kpi=pd.merge(df_kpi,df_peisongfei,on="运单号",how="right")
+        df_kpi = df_kpi[["运单号", "问题单类型","加盟商ID","骑手ID","站点ID"]]
+        df_kpi = df_kpi[df_kpi["问题单类型"].isin(["骑手T+12超时","超时"])]
+        df_kpi.to_excel(".\\核对ele_KPI_overtime_order_monthly.xlsx",index=False)
+        # self.check(df_kpi,path6_ele_KPI_overtime_order_monthly)
+
+    def check(self,df_kpi,path6_ele_KPI_overtime_order_monthly):
+        middle = pd.read_excel(path6_ele_KPI_overtime_order_monthly)
+        middle=clear_data(middle)
+        df_kpi=df_kpi.reset_index()
+        # 填写需要核对的城市
+        middle1=middle[middle["加盟商ID"]==str(df_kpi["加盟商ID"][1])]
+        if (df_kpi["运单号"].count() == middle1["运单号"].count()):
+            print("Right")
+        else:
+            print("Wrong")
+
+
+###=======================================================###
+ ## 运单详情超时:ele_deliverydetails_overtime_order_monthly
+###=======================================================###
+
+class Ele_deliverydetails_overtime_order_monthly:
+
+    def __init__(self,path_ele_deliverydetails_overtime_order_monthly):
+        self.path_ele_deliverydetails_overtime_order_monthly=path_ele_deliverydetails_overtime_order_monthly
+        self.table_create(path_ele_deliverydetails_overtime_order_monthly)
+
+    def table_create(self,path_ele_deliverydetails_overtime_order_monthly):
+        overtime_delivery = csv_merge(path_ele_deliverydetails_overtime_order_monthly)
+        overtime_delivery = clear_data(overtime_delivery)
+
+        # overtime_delivery = overtime_delivery[["运单号", "骑手T超时时长"]]
+        overtime_delivery = overtime_delivery[overtime_delivery['骑手T超时时长'].str.contains('超时')]
+        overtime_delivery.to_excel(".\\核对ele_deliverydetails_overtime_order_monthly.xlsx",index=False)
+        # self.check(overtime_delivery,path4_ele_deliverydetails_overtime_order_monthly)
+
+    def check(self,overtime_delivery,path4_ele_deliverydetails_overtime_order_monthly):
+        middle = pd.read_excel(path4_ele_deliverydetails_overtime_order_monthly)
+        middle=clear_data(middle)
+        # 填写需要核对的城市
+        middle1=middle[middle["下载城市"]=="包头"]
+        if (overtime_delivery["运单号"].count() == middle1["运单号"].count()):
+            print("Right")
+        else:
+            print("Wrong")
+
+###=======================================================###
+      ## KPI差评：ele_KPI_bad_order_monthly
+###=======================================================###
+
+class Ele_KPI_bad_order_monthly:
+
+    def __init__(self, path_ele_KPI_bad_order_monthly, path):
+            self.path_ele_KPI_bad_order_monthly = path_ele_KPI_bad_order_monthly
+            self.path = path
+            self.table_create(path_ele_KPI_bad_order_monthly, path)
+
+    def table_create(self, path_ele_KPI_bad_order_monthly, path):
+        xl=Xlrd(path_ele_KPI_bad_order_monthly)
+        rvalue = xl.return_rvalue()
+        endfile= path_ele_KPI_bad_order_monthly+"\\concat.xlsx"
+        write = Xlsxwriter(endfile, rvalue)
+        write.save_data()
+        bad_kpi = pd.read_excel(endfile)
+        os.remove(endfile)
+        bad_kpi = clear_data(bad_kpi)
+        df_kpi = bad_kpi[["运单号", "问题单类型"]]
+        df_peisongfei = csv_merge(path)
+        df_peisongfei = clear_data(df_peisongfei)
+        df_peisongfei = df_peisongfei[["运单号", "加盟商ID", "骑手ID", "站点ID"]]
+        df_kpi = pd.merge(df_kpi, df_peisongfei, on="运单号", how="right")
+        df_kpi = df_kpi[["运单号", "问题单类型", "加盟商ID", "骑手ID", "站点ID"]]
+        df_kpi = df_kpi[df_kpi["问题单类型"].isin(["差评"])]
+        df_kpi.to_excel(".\\核对ele_KPI_bad_order_monthly.xlsx", index=False)
+        self.check(df_kpi,path11_ele_KPI_bad_order_monthly)
+
+    def check(self, df_kpi, path11_ele_KPI_bad_order_monthly):
+        middle = pd.read_excel(path11_ele_KPI_bad_order_monthly)
+        middle = clear_data(middle)
+        df_kpi=df_kpi.reset_index()
+        # 填写需要核对的城市
+        middle1 = middle[middle["加盟商ID"] == str(df_kpi["加盟商ID"][1])]
+        if (df_kpi["运单号"].count() == middle1["运单号"].count()):
+            print("Right")
+        else:
+            print("Wrong")
+
+
+###=======================================================###
+  ## 服务奖惩的评价差评:ele_servicecomment_bad_order_monthly
+      ## 目前差评没有时间差这一说，所以没有生成这部分
+###=======================================================###
+
+class Ele_servicecomment_bad_order_monthly:
+
+    def __init__(self,path_ele_servicecomment_bad_order_monthly):
+        self.path_ele_servicecomment_bad_order_monthly=path_ele_servicecomment_bad_order_monthly
+        self.table_create(path_ele_servicecomment_bad_order_monthly)
+
+    def table_create(self,path_ele_servicecomment_bad_order_monthly):
+        bad = excel_merge(path_ele_servicecomment_bad_order_monthly)
+        bad1 = clear_data(bad)
+        bad1 = bad1[["团队","骑手ID", "运单号", "骑手信息", "评价等级", "评价来源", "申述状态", "判定状态", "评价日期"]]
+        bad1 = bad1[bad1['评价等级'] == '吐槽']
+        bad1 = bad1[bad1['申述状态'] != '二审通过']
+        bad1 = bad1[bad1['判定状态'] != '无效']
+        bad1.to_excel(".\\核对ele_servicecomment_bad_order_monthly.xlsx",index=False)
+        # self.check(bad1,path10_ele_servicecomment_bad_order_monthly)
+
+    def check(self,bad,path10_ele_servicecomment_bad_order_monthly):
+        middle = pd.read_excel(path10_ele_servicecomment_bad_order_monthly)
+        middle=clear_data(middle)
+        # 填写需要核对的城市
+        middle1=middle[middle["下载城市"]=="安阳"]
+        if (bad["运单号"].count() == middle1["运单号"].count()):
+            print("Right")
+        else:
+            print("Wrong")
+
+###=======================================================###
+      ## 配送费差评:ele_deliveryfee_bad_order_monthly
+###=======================================================###
+
+class Ele_deliveryfee_bad_order_monthly:
+
+    def __init__(self,path_ele_deliveryfee_bad_order_monthly):
+        self.path_ele_deliveryfee_bad_order_monthly=path_ele_deliveryfee_bad_order_monthly
+        self.table_create(path_ele_deliveryfee_bad_order_monthly)
+
+    def table_create(self,path_ele_deliveryfee_bad_order_monthly):
+        bad = csv_merge(path_ele_deliveryfee_bad_order_monthly)
+        bad = clear_data(bad)
+        bad = bad[["运单号","业务类型", "详情","站点ID","骑手ID","加盟商ID"]]
+        bad=bad[bad["业务类型"]=="配送收入"]
+        bad = bad[bad["详情"] == "差评"]
+        bad.to_excel(".\\核对ele_deliveryfee_bad_order_monthly.xlsx",index=False)
+        self.check(bad)
+    # 如果没有数据，直接为0
+    def check(self,bad):
+        if (bad["运单号"].count() == 0):
+            print("Right")
+        else:
+            print("Wrong")
+
+###=======================================================###
+      ## 违规账单表:ele_forfeit_order_monthly
+###=======================================================###
+
+# check method has been one
+class Ele_forfeit_order_monthly:
+
+    def __init__(self,path_ele_forfeit_order_monthly):
+        self.path_ele_forfeit_order_monthly=path_ele_forfeit_order_monthly
+        self.table_create(path_ele_forfeit_order_monthly)
+
+    def table_create(self,path_ele_forfeit_order_monthly):
+        forfeit = csv_merge(path_ele_forfeit_order_monthly)
+        forfeit = clear_data(forfeit)
+        forfeit = forfeit[["账单时间","站点ID","骑手ID","骑手名称","金额","账单类型","业务类型","详情","订单号","运单号","加盟商ID"]]
+        forfeit = forfeit[forfeit["账单类型"]=="违规扣款"]
+        forfeit.to_excel(".\\核对ele_forfeit_order_monthly.xlsx",index=False)
+
+        self.check(forfeit,path7_ele_forfeit_order_monthly)
+
+    def check(self,forfeit,path7_ele_forfeit_order_monthly):
+        middle = pd.read_excel(path7_ele_forfeit_order_monthly)
+        middle = clear_data(middle)
+        forfeit=forfeit.reset_index()
+        middle=middle[middle["加盟商ID"]==(str(forfeit["加盟商ID"][1]))]
+
+        if (forfeit["运单号"].count() == middle["运单号"].count()):
+            print("该城市的两个表对比：总行数一致")
+        else:
+            print("该城市的两个表对比：总行数不一致")
+            print("源数据行数：",forfeit["运单号"].count())
+            print("中间表行数：", middle["运单号"].count())
+        # 随机抽样10%检查
+        df_id_sample = forfeit["运单号"].sample(frac=0.1)
+        df_id_sample = df_id_sample.values.tolist()
+
+        for i in range(len(df_id_sample)-1,-1,-1):
+            if df_id_sample[i]=="-":
+                df_id_sample.remove("-")
+        print(df_id_sample)
+        for j in df_id_sample:
+            # print("df",forfeit[forfeit["运单号"]==j]["骑手ID"])
+            # print("middle",middle[middle["运单号"]==j]["骑手ID"])
+            if str(forfeit[forfeit["运单号"]==j]["骑手ID"])== str(middle[middle["运单号"]==j]["骑手ID"]):
+                if str(forfeit[forfeit["运单号"]==j]["金额"])== str(middle[middle["运单号"]==j]["金额"]):
+                    continue
+                else:
+                    print("该运单号对应的信息不一致：",j)
+        print("随机抽取5%的运单核对完成：未发现其他问题")
+
+###=======================================================###
+      ## 申诉返款表:ele_refund_order_monthly
+###=======================================================###
+# check method has been done
+class Ele_refund_order_monthly:
+
+    def __init__(self,path_ele_refund_order_monthly):
+        self.path_ele_refund_order_monthly=path_ele_refund_order_monthly
+        self.table_create(path_ele_refund_order_monthly)
+
+    def table_create(self,path_ele_refund_order_monthly):
+        refund = csv_merge(path_ele_refund_order_monthly)
+        print(refund)
+        refund = clear_data(refund)
+        # refund = refund[["加盟商ID","账单时间","站点ID","骑手ID","骑手名称","金额","账单类型","业务类型","详情","订单号","运单号"]]
+        refund = refund[refund["账单类型"]=="申诉返款"]
+        refund.to_excel(".\\核对ele_refund_order_monthly.xlsx",index=False)
+
+        self.check(refund,path9_ele_refund_order_monthly)
+
+    def check(self,refund,path9_ele_refund_order_monthly):
+        middle = pd.read_excel(path9_ele_refund_order_monthly)
+        refund = refund.reset_index()
+        middle = clear_data(middle)
+        middle=middle[middle["加盟商ID"]==(str(refund["加盟商ID"][1]))]
+
+        df_id_sample = refund["运单号"].sample(frac=0.05)
+        df_id_sample = df_id_sample.values.tolist()
+        if (refund["运单号"].count() == middle["运单号"].count()):
+            print("该城市的两个表对比：总行数一致")
+        else:
+            print("该城市的两个表对比：总行数不一致")
+            print("源数据行数：",refund["运单号"].count())
+            print("中间表行数：",middle["运单号"].count())
+        for i in df_id_sample:
+            if str(refund[refund["运单号"]==i]["骑手ID"])== str(middle[middle["运单号"]==i]["骑手ID"]):
+                if str(refund[refund["运单号"]==i]["金额"])== str(middle[middle["运单号"]==i]["金额"]):
+                    continue
+                else:
+                    print("该运单号对应的信息不一致：",i)
+        print("随机抽取5%的运单核对完成：未发现其他问题")
+
+###=======================================================###
+      ## 时段单量表:ele_order_time_monthly
+###=======================================================###
+
+class Ele_order_time_monthly:
+
+    def __init__(self,path_ele_order_time_monthly):
+        self.path_ele_order_time_monthly=path_ele_order_time_monthly
+        self.table_create(path_ele_order_time_monthly)
+
+    def table_create(self,path_ele_refund_order_monthly):
+        ele_month_58_std_complete_order = csv_merge(path_ele_refund_order_monthly)
+        ele_month_58_std_complete_order = ele_month_58_std_complete_order[ele_month_58_std_complete_order.业务类型 == "配送收入"]
+        ele_month_58_std_complete_order = ele_month_58_std_complete_order[ele_month_58_std_complete_order.详情.isin(['差评', '完成单', '完成单-超时'])]
+        # 生成ele_month_58_std_complete_order
+        df = ele_month_58_std_complete_order
+        df["time_segment_no"] = -1
+        df['运单号'] = df['运单号'].astype('str')
+        # STR格式修改
+        df = df.rename(columns={"团队ID": "站点ID"})
+        df = df.rename(columns={"账单时间": "日期"})
+        df['骑手ID'] = df['骑手ID'].astype('str')
+        df['时间'] = df['业务交易时间'].str.split(' ', expand=True)[1].copy()
+        df['业务交易时间_time'] = df['时间'].apply(time_int).copy()
+        df[u'time_segment_no'] = (df['业务交易时间_time'] % 100 + df['业务交易时间_time'] // 100 * 60) // 30 + 1
+        df[u'time_segment_no'] = df[u'time_segment_no'].astype(int)
+        # 匹配欺诈单
+        ele_month_58_std_complete_order = pd.merge(df, ele_month_37_std_cheat, on='运单号', how='left')
+        df = ele_month_58_std_complete_order[["站点ID", "骑手ID", "运单号", "time_segment_no", "欺诈单", "加盟商ID"]]
+        df = df[df.欺诈单 != "欺诈单"]
+        df = df.groupby(["站点ID", "骑手ID", "time_segment_no", "加盟商ID"])["运单号"].agg('count').reset_index()
+        df = df.rename(columns={"运单号": "该时间段内的完成单量"})
+        labels = {
+            1: u'00:00-00:30', 2: u'00:30-01:00', 3: u'01:00-01:30', 4: u'01:30-02:00', 5: u'02:00-02:30',
+            6: u'02:30-03:00',
+            7: u'03:00-03:30', 8: u'03:30-04:00', 9: u'04:00-04:30', 10: u'04:30-05:00', 11: u'05:00-05:30',
+            12: u'05:30-06:00',
+            13: u'06:00-06:30', 14: u'06:30-07:00', 15: u'07:00-07:30', 16: u'07:30-08:00', 17: u'08:00-08:30',
+            18: u'08:30-09:00',
+            19: u'09:00-09:30', 20: u'09:30-10:00', 21: u'10:00-10:30', 22: u'10:30-11:00', 23: u'11:00-11:30',
+            24: u'11:30-12:00',
+            25: u'12:00-12:30', 26: u'12:30-13:00', 27: u'13:00-13:30', 28: u'13:30-14:00', 29: u'14:00-14:30',
+            30: u'14:30-15:00',
+            31: u'15:00-15:30', 32: u'15:30-16:00', 33: u'16:00-16:30', 34: u'16:30-17:00', 35: u'17:00-17:30',
+            36: u'17:30-18:00',
+            37: u'18:00-18:30', 38: u'18:30-19:00', 39: u'19:00-19:30', 40: u'19:30-20:00', 41: u'20:00-20:30',
+            42: u'20:30-21:00',
+            43: u'21:00-21:30', 44: u'21:30-22:00', 45: u'22:00-22:30', 46: u'22:30-23:00', 47: u'23:00-23:30',
+            48: u'23:30-00:00'}
+        df[u'时间段'] = df[u'time_segment_no'].apply(lambda k: labels.get(k))
+        ele_order_time_monthly = df
+        ele_order_time_monthly.to_excel(".\\核对ele_order_time_monthly.xlsx",index=False)
+        self.check(ele_order_time_monthly,path3_ele_order_time_monthly)
+
+    def check(self,df,path3_ele_order_time_monthly):
+        middle = pd.read_excel(path3_ele_order_time_monthly)
+        middle = clear_data(middle)
+        df= df.reset_index()
+        middle=middle[middle["加盟商ID"]==(str(df["加盟商ID"][1]))]
+
+        if (df["加盟商ID"].count() == middle["加盟商ID"].count()):
+            print("Right")
+        else:
+            print("Wrong")
+
+class Ele_month_37_std_cheat:
+
+    def __init__(self,path_ele_month_37_std_cheat):
+        self.path_ele_month_37_std_cheat=path_ele_month_37_std_cheat
+        self.table_create(path_ele_month_37_std_cheat)
+
+    def table_create(self,path_ele_month_37_std_cheat):
+        xl = Xlrd(path_ele_month_37_std_cheat)
+        rvalue = xl.return_rvalue()
+        endfile = path_ele_month_37_std_cheat + "\\concat.xlsx"
+        write = Xlsxwriter(endfile, rvalue)
+        write.save_data()
+        df = pd.read_excel(endfile)
+        os.remove(endfile)
+        df=df[["运单号","业务类型"]]
+        df = clear_data(df)
+        df=df[df["业务类型"]=="欺诈单"]
+        self.check(df)
+
+    def check(self,df):
+        middle = ele_month_37_std_cheat
+        middle = clear_data(middle)
+        if (df["运单号"].count() == middle["运单号"].count()):
+            print("Right")
+        else:
+            print("Wrong")
+
+
+# 主函数
+if __name__=="__main__":
+
+
+# 完成单量核对：ele_order_num_allowance_monthly 表1
+# 输入是”城市“的配送费账单文件夹，需要自己解压后放在一个文件夹里
+# 输出为： 核对ele_order_num_allowance_monthly.xlsx
+
+    # utilize()
+    # login()
+    # Ele_order_num_allowance_monthly(r"F:\2021.3饿了么薪资源数据\新建文件夹\city\吉林\代理商账单\新建文件夹")
+
+
+# 服务奖惩评价的好评：ele_comment_good_order_monthly 表2
+# 输入为”12B申诉管理-服务奖惩-评价“和”5B数据分析-运单详情“的文件夹
+
+    # path_服务奖惩的评价=r"F:\2021.1饿了么薪资数据\12B申诉管理-服务奖惩-评价\安阳"
+    # path_2个月的运单详情=r"F:\2021.1饿了么薪资数据\5B数据分析-运单详情\安阳"
+    # Ele_comment_good_order_monthly(path_服务奖惩的评价,path_2个月的运单详情)
+
+# 运单详情中的好评单:ele_orderdetails_good_order_monthly 表3
+    # utilize()
+    # login()
+    # Ele_orderdetails_good_order_monthly(r"F:\2021.2饿了么薪资分城市后\北京\5B数据分析-运单详情\北京")
+
+# 配送费超时: ele_deliveryfee_overtime_order_monthly 表4
+# 配送费路径
+    # Ele_deliveryfee_overtime_order_monthly(r"F:\city\安阳\配送费")
+
+# KPI超时： ele_KPI_overtime_order_monthly 表5
+# 需要合并一个表里的多个sheets
+# 20B KPI管理-站点指标明细-问题单
+#     path_ele_KPI_overtime_order_monthly=r"F:\2021.3饿了么薪资源数据\新建文件夹\20BKPI管理-站点指标明细-问题单\安阳"
+#     path=r"F:\2021.3饿了么薪资源数据\新建文件夹\city\安阳\代理商账单\peisongfei"
+#     Ele_KPI_overtime_order_monthly(path_ele_KPI_overtime_order_monthly,path)
+
+# 运单详情超时：ele_deliverydetails_overtime_order_monthly 表6
+#     Ele_deliverydetails_overtime_order_monthly(r"F:\2021.2饿了么薪资数据\新建文件夹")
+
+# KPI差评：ele_KPI_bad_order_monthly 表7
+#20B KPI管理-站点指标明细-问题单
+    # path_ele_KPI_bad_order_monthly=r"F:\city\常州\20BKPI管理-站点指标明细-问题单"
+    # path=r"F:\city\常州\配送费"
+    # Ele_KPI_bad_order_monthly(path_ele_KPI_bad_order_monthly,path)
+## 服务奖惩的差评:ele_servicecomment_bad_order_monthly 表8
+## 关佩文  ##
+    Ele_servicecomment_bad_order_monthly(r"ele_KPI_bad_order_monthly")
+
+## 配送费差评: ele_deliveryfee_bad_order_monthly 表9
+## 关佩文  ##
+    # Ele_deliveryfee_bad_order_monthly(r"F:\city\安阳\配送费")
+## 违规账单表: ele_forfeit_order_monthly 表10
+## 关佩文  ##
+    # Ele_forfeit_order_monthly(r"F:\2021.1饿了么薪资数据\代理商账单\14645396-代理商账单-01-01-01-15")
+
+## 申述返款账单: ele_refund_order_monthly 表11
+
+    # Ele_refund_order_monthly(r"F:\2021.1饿了么薪资数据\代理商账单\14645396-代理商账单-01-01-01-15\新建文件夹")
+
+## 时段单量表：ele_order_time_monthly 表12
+## 姜雪  ##
+    # Ele_order_time_monthly(r"F:\city\安阳\配送费")
