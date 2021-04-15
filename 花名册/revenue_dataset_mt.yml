@@ -1,0 +1,1164 @@
+mt_daily_env:
+  context_defaults:
+    platform_code: meituan
+    play_on_dask_cluster: true
+    delay_compute: true
+    dask_client_set_as_default: true
+    sync_result_from_cluster: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+  pre_load_dataset:
+    - std_qplus_vendor_dc_map
+    # 结算对账-加盟商打款进度-未结算账单-基本收入
+    - mt_day_4_std
+    # 结算对账-加盟商打款进度-未结算账单-餐损赔付
+    - mt_day_5_std
+    # 业务管理-加盟商奖惩-查看明细-下载固定惩罚明细
+    - mt_day_12_std
+    # 业务管理-加盟站奖惩-下载奖惩明细
+    - mt_day_13_std
+    # 业务管理-星火履约罚单
+    - mt_day_15_std
+    # 结算对账-加盟商打款进度-打款数据细目-邮资账单-已结算账单-详情-其他项-详情-配送服务2.0违规扣款明细（表）
+    - mt_day_25_std
+    - mt_day_2_3_dc_qs_order_lookup_map
+  context_global_vars:
+     # 增值税率
+    tax_rate: 1.06
+
+  play:
+     #收入表和订单表拼接，以日期和商圈为索引
+    - name: mt_day_4_std_single_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_day_4_std
+            index: 订单ID
+        - df_merge:
+            other_df:
+              key: mt_day_2_3_dc_qs_order_lookup_map
+              columns: [站点ID, 订单ID, 日期]
+              index: 订单ID
+            on: 订单ID
+            how: left
+            left_index: true
+            right_index: true
+        - df_reset_index: []
+#        - dask_persist_compute:
+#            sync_compute: true
+#            chunk_size: 3000
+        - push_dataset:
+            key: mt_day_4_std_lookup_map
+        - use_df:
+            key: mt_day_4_std_lookup_map
+        - df_groupby:
+            by: [日期, 站点ID]
+        - df_count:
+            column: 订单ID
+            rename: 单日结算单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_4_std_lookup_map
+        - df_groupby:
+            by: [日期, 站点ID]
+        - df_sum:
+            column: 收入小计
+            rename: 单日收入小计
+        - df_reset_index: []
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [日期, 站点ID]
+            how: outer
+            fillna: 0
+            drop_stash: true
+        - push_dataset:
+            key: mt_day_4_std_single_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_4_std_single_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [日期, dc_id]
+        - df_sum:
+            column: [单日收入小计, 单日结算单量]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    #测算商圈一天的收入
+    - name: mt_base_revenue_add_one_day
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_day_4_std_single_ext
+            columns: [日期,dc_id,单日收入小计]
+            rename:
+              日期: order_day
+              单日收入小计: money
+        - df_groupby:
+            by: [dc_id]
+        - df_agg:
+            - order_day: max
+              money: mean
+        - df_reset_index: []
+
+
+
+
+    #将收入订单表进行聚合
+    - name: mt_day_4_std_ttl_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_day_4_std_single_ext
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: 单日结算单量
+            rename: 结算单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_4_std_single_ext
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: 单日收入小计
+            rename: 收入小计
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_4_std_single_ext
+        - df_groupby:
+            by: [dc_id]
+        - df_nunique:
+            column: 日期
+            rename: 订单天数
+        - df_reset_index: []
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [dc_id]
+            how: outer
+            fillna: 0
+            drop_stash: true
+        - set_meta_days_column:
+            - 当月总天数
+        # 动态日均单量
+        - df_eval:
+            - '[动态日均单量] = [结算单量] / [订单天数]'
+        # 当月预估总结算单量
+        - df_eval:
+            - '[当月预估总结算单量] = [动态日均单量] * [当月总天数]'
+        - set_meta_month_column:
+            - month
+
+        #添加一天的基础收入
+        - push_dataset:
+            key: mt_day_4_std_ttl_ext_mini
+        - use_df:
+            key: mt_day_4_std_ttl_ext_mini
+        - stash_push_df: []
+        - use_df:
+            key: mt_base_revenue_add_one_day
+        - fetch_cols:
+            columns: [dc_id,money]
+        - stash_push_df: []
+        - stash_join_df:
+            on: dc_id
+            how: right
+            drop_stash: true
+        - df_reset_index: []
+        - df_fillna:
+            columns: [money]
+            value: 0.0
+        - df_eval:
+            - '[收入小计] = [收入小计] + [money]'
+
+#        - push_dataset:
+#            key: final_add_one_day
+#        - use_df:
+#            key: final_add_one_day
+#        - df_select:
+#            - '[订单天数] < [当月总天数]'
+#        - df_eval:
+#            - '[收入小计] = [收入小计] + [money]'
+#        - stash_push_df: []
+#
+#        - use_df:
+#            key: final_add_one_day
+#        - df_select:
+#            - '[订单天数] >= [当月总天数]'
+#        - stash_push_df: []
+#
+#        - stash_concat_df:
+#            drop_stash: True
+
+    #餐损赔付
+    - name: mt_day_5_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_day_5_std
+            index: 订单ID
+        - df_merge:
+            other_df:
+              key: mt_day_2_3_dc_qs_order_lookup_map
+              columns: [站点ID, 订单ID]
+              index: 订单ID
+            on: 订单ID
+            how: left
+            left_index: true
+            right_index: true
+        - df_reset_index: []  
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 餐损赔付金额(元)
+            rename: 餐损赔付
+        - df_reset_index: []
+        - push_dataset:
+            key: mt_day_5_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_5_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [餐损赔付]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    #固定奖惩的明细
+    - name: mt_day_12_std_ext
+      sync_result: true
+      cooks:
+        - fetch_dataset:
+            columns: [订单ID, 骑手ID, 惩罚原因, 惩罚金额(元)]
+            dataset_type_code: mt_day_12_std
+            dataset_cate: std
+            ignore_null_error: true
+            empty_df_record:
+                订单ID: '-'
+                骑手ID: '-'
+                惩罚原因: '-'
+                惩罚金额(元): 0.0
+        - df_set_index:
+            - 订单ID
+        - df_merge:
+            other_df:
+              key: mt_day_2_3_dc_qs_order_lookup_map
+              columns: [站点ID, 订单ID]
+              index: 订单ID
+            on: 订单ID
+            how: left
+            left_index: true
+            right_index: true
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'订单ID'] == u'-',u'站点ID'] =  u'-'
+                result = to_dd(df)
+
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 惩罚金额(元)
+            rename: 固定惩罚
+        - df_reset_index: []
+        - push_dataset:
+            key: mt_day_12_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_12_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'站点ID'] == u'-',u'dc_id'] =  u'-'
+                result = to_dd(df)
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [固定惩罚]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    #配送服务2.0违规扣款明细
+    - name: mt_day_25_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_day_25_std
+            index: 订单ID
+        - df_merge:
+            other_df:
+              key: mt_day_2_3_dc_qs_order_lookup_map
+              columns: [站点ID, 订单ID]
+              index: 订单ID
+            on: 订单ID
+            how: left
+            left_index: true
+            right_index: true
+        - df_reset_index: []
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'订单ID'] == u'-',u'站点ID'] =  u'-'
+                result = to_dd(df)
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 配送服务2.0违规扣款(元)
+            rename: 配送服务2_0违规扣款
+        - df_reset_index: []
+        - push_dataset:
+            key: mt_day_25_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_25_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - run_py:
+            - |
+                df = to_df(df)
+                df.loc[df.loc[:,u'站点ID'] == u'-',u'dc_id'] =  u'-'
+                result = to_dd(df)
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [配送服务2_0违规扣款]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    # 此表为通过上月月数据的中month_16(加盟站奖惩明细)形成的映射表
+    - name: mt_day_13_std_lookup_map
+      sync_result: true
+      cooks:
+          - use_df:
+              key: std_qplus_vendor_dc_map
+              columns: [vendor_dc_id,dc_id]
+              rename:
+                vendor_dc_id: 站点ID
+          - stash_push_df: []
+          - fetch_dataset:
+              dataset_type_code: mt_month_16_std
+              dataset_cate: std
+              columns: [站点ID, 每单奖惩金额（元）]
+              month_value: prev_month
+              ignore_null_error: true
+              empty_df_record:
+                站点ID: '-'
+                上月每单奖惩金额: 0.0
+              rename:
+                每单奖惩金额（元）: 上月每单奖惩金额
+          - stash_push_df: []
+          - stash_join_df:
+              on: [站点ID]
+              how: left
+              drop_stash: true
+          - stash_push_df: []
+          - use_df:
+              key: mt_day_4_std_ttl_ext
+              columns: [dc_id]
+          - add_cols:
+              - 本月默认每单奖惩金额: 0.00
+          - stash_push_df: []
+          - stash_join_df:
+              on: [dc_id]
+              how: left
+              drop_stash: true
+          - df_to_float:
+              - 上月每单奖惩金额
+          - df_to_float:
+              - 本月默认每单奖惩金额
+          - df_eval:
+              - '[本月实际每单奖惩金额] = [上月每单奖惩金额] + [本月默认每单奖惩金额]'
+          - set_meta_month_column:
+              - month
+
+    # 依赖 mt_day_13_std_lookup_map
+    - name: mt_day_13_std_ext
+      sync_result: true
+      sync_result_from_cluster: true
+      cooks:
+          - use_df:
+              key: std_qplus_vendor_dc_map
+              columns: [vendor_dc_id,dc_id]
+              rename:
+                vendor_dc_id: 站点ID
+          - stash_push_df: []
+          - fetch_dataset:
+              columns: [站点ID, 得分, 星级, 评星奖惩单量, 不满意率, 复合准时率考核, 提前点送达率复合,  配送原因未完成率, 15分钟超时订单占比]
+              dataset_type_code: mt_day_13_std
+              dataset_cate: std
+              fallback_last: true
+              ignore_null_error: true
+              empty_df_record:
+                  站点ID: '-'
+                  得分: 0
+                  星级: 0
+                  评星奖惩单量: 0
+                  不满意率: 0
+                  复合准时率考核: 0
+                  提前点送达率复合: 0
+                  配送原因未完成率: 0
+                  15分钟超时订单占比: 0
+          - df_set_index:
+              - 站点ID
+          - df_to_int:
+              - 星级
+          - stash_push_df: []
+          - stash_join_df:
+              on: [站点ID]
+              how: left
+              drop_stash: true
+          - df_reset_index: []
+          - run_py:
+              - |
+                  df = to_df(df)
+                  df.loc[df.loc[:,u'站点ID'] == u'-',u'dc_id'] =  u'-'
+                  result = to_dd(df)
+          - stash_push_df: []
+          - df_merge:
+              other_df:
+                key: mt_day_13_std_lookup_map
+                # 此表需要从上个月获取
+                columns: [dc_id, 本月实际每单奖惩金额]
+                index: dc_id
+              on: dc_id
+              how: left
+              left_index: false
+              right_index: true
+          - df_reset_index: []
+          - df_to_int:
+              - 评星奖惩单量
+          - df_to_float:
+              - 本月实际每单奖惩金额
+          - df_fillna:
+              columns: [本月实际每单奖惩金额]
+              value: 0.0
+          - df_eval:
+              - '[评星奖惩总额] = [评星奖惩单量] * [本月实际每单奖惩金额]'
+          - set_meta_month_column:
+              - month
+
+    #星火履约罚单
+    - name: mt_day_15_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_day_15_std
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 金额
+        - df_reset_index: []
+        - rename_cols:
+          - 金额: 履约罚单扣款
+        - push_dataset:
+            key: mt_day_15_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_15_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [履约罚单扣款]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    - name: mt_teams_basic_lable_by_daily_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_day_5_std_ext
+            columns: [dc_id, 餐损赔付]
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_12_std_ext
+            columns: [dc_id, 固定惩罚]
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_25_std_ext
+            columns: [dc_id, 配送服务2_0违规扣款]
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_13_std_ext
+            columns: [dc_id, 评星奖惩总额]
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_15_std_ext
+            columns: [dc_id, 履约罚单扣款]
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_4_std_ttl_ext
+            columns: [dc_id, 结算单量, 收入小计,订单天数, 当月总天数, 动态日均单量, 当月预估总结算单量]
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            fillna: 0
+            drop_stash: true
+        - df_reset_index: []
+        - add_cols:
+            - 政策性收入_商权益: 0.00
+              政策性收入_调账奖惩: 0.00
+              履约扣罚_调账奖惩: 0.00
+              骑手关怀计划出资: 0.00
+              活动预付款扣减: 0.00 
+              骑手活动扣罚款_调账奖惩: 0.00
+              其他常态扣罚_调账奖惩: 0.00
+              其他非常态扣罚_调账奖惩: 0.00
+              政策收入_强分摊: 0.00
+              站点变卖损益: 0.00
+              物资变卖收入: 0.00
+              平台税金返还_调账奖惩: 0.00
+              平台奖励_活动: 0.00
+              平台奖励_调账: 0.00
+              平台奖励_骑手: 0.00
+              非运营罚款_调账奖惩: 0.00
+              扣罚不开票_调账奖惩: 0.00
+        # 计算美团的税后基础收入
+        - df_eval:
+            - |
+              [收入小计] = [收入小计] / @tax_rate
+              [评星奖惩总额] = [评星奖惩总额] / @tax_rate
+              [餐损赔付] = [餐损赔付] / @tax_rate
+              [固定惩罚] = [固定惩罚] / @tax_rate
+              [履约罚单扣款] = [履约罚单扣款] / @tax_rate
+              [配送服务2_0违规扣款] = [配送服务2_0违规扣款] / @tax_rate
+              [履约扣罚_调账奖惩] = [履约扣罚_调账奖惩] / @tax_rate
+              [骑手关怀计划出资] = [骑手关怀计划出资] / @tax_rate
+              [活动预付款扣减] = [活动预付款扣减] / @tax_rate
+              [骑手活动扣罚款_调账奖惩] = [骑手活动扣罚款_调账奖惩] / @tax_rate
+              [其他常态扣罚_调账奖惩] = [其他常态扣罚_调账奖惩] / @tax_rate
+              [其他非常态扣罚_调账奖惩] = [其他非常态扣罚_调账奖惩] / @tax_rate
+        - set_meta_month_column:
+            - month
+
+mt_month_env:
+  context_defaults:
+    platform_code: meituan
+    play_on_dask_cluster: true
+    delay_compute: true
+    dask_client_set_as_default: true
+    sync_result_from_cluster: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+  pre_load_dataset:
+    - std_qplus_vendor_dc_map
+    # 结算对账-加盟商打款进度-已结算账单-基本收入
+    - mt_month_7_std
+    # 结算对账-加盟商打款进度-已结算账单-餐损赔付
+    - mt_month_8_std
+    # 业务管理-加盟商奖惩-查看明细-下载固定惩罚明细
+    - mt_month_17_std
+    # 业务管理-加盟站奖惩-下载奖惩明细
+    - mt_month_16_std
+    # 业务管理-星火履约罚单
+    - mt_month_14_std
+    # 结算对账-加盟商打款进度-打款数据细目-邮资账单-已结算账单-详情-其他项-详情-配送服务2.0违规扣款明细（表）
+    - mt_month_26_std
+
+    # 结算对账-加盟商打款进度-打款数据细目-骑手活动及其他发票收入-已完成任务-详情-活动发票明细（表）
+    - mt_month_27_std
+    #结算对账-加盟商打款进度-打款数据细目-骑手活动及其他发票收入-已完成任务-详情-调帐发票明细（表）
+    - mt_month_28_std
+    # 结算对账-加盟商打款进度-打款数据细目-骑手活动及其他发票收入-已完成任务-详情-骑手账单发票明细（表）
+    - mt_month_29_std
+
+    - mt_day_2_3_dc_qs_order_lookup_map
+  context_global_vars:
+     # 增值税率
+    tax_rate: 1.06
+
+  play:
+    - name: mt_month_7_std_single_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_month_7_std
+            index: 订单ID
+        - df_merge:
+            other_df:
+              key: mt_day_2_3_dc_qs_order_lookup_map
+              columns: [站点ID, 订单ID, 日期]
+              index: 订单ID
+            on: 订单ID
+            how: left
+            left_index: true
+            right_index: true
+        - df_reset_index: []
+        - dask_persist_compute:
+            sync_compute: true
+            chunk_size: 3000
+        - push_dataset:
+            key: mt_month_7_std_lookup_map
+        - use_df:
+            key: mt_month_7_std_lookup_map
+        - df_groupby:
+            by: [日期, 站点ID]
+        - df_count:
+            column: 订单ID
+            rename: 单日结算单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_7_std_lookup_map
+        - df_groupby:
+            by: [日期, 站点ID]
+        - df_sum:
+            column: 收入小计
+            rename: 单日收入小计
+        - df_reset_index: []
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [日期, 站点ID]
+            how: outer
+            fillna: 0
+            drop_stash: true
+        - push_dataset:
+            key: mt_month_7_std_single_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_7_std_single_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [日期, dc_id]
+        - df_sum:
+            column: [单日收入小计, 单日结算单量]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    - name: mt_month_7_std_ttl_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_month_7_std_single_ext
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: 单日结算单量
+            rename: 结算单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_7_std_single_ext
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: 单日收入小计
+            rename: 收入小计
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_7_std_single_ext
+        - df_groupby:
+            by: [dc_id]
+        - df_nunique:
+            column: 日期
+            rename: 订单天数
+        - df_reset_index: []
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [dc_id]
+            how: outer
+            fillna: 0
+            drop_stash: true
+        - set_meta_days_column:
+            - 当月总天数
+        # 准确日均单量
+        - df_eval:
+            - '[准确日均单量] = [结算单量] / [订单天数]'
+        # 当月准确总结算单量
+        - df_eval:
+            - '[当月准确总结算单量] = [结算单量]'
+        - set_meta_month_column:
+            - month
+
+    - name: mt_month_8_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_month_8_std
+            index: 订单ID
+        - df_merge:
+            other_df:
+              key: mt_day_2_3_dc_qs_order_lookup_map
+              columns: [站点ID, 订单ID]
+              index: 订单ID
+            on: 订单ID
+            how: left
+            left_index: true
+            right_index: true
+        - df_reset_index: []  
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 餐损赔付金额(元)
+            rename: 餐损赔付
+        - df_reset_index: []
+        - push_dataset:
+            key: mt_month_8_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_8_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [餐损赔付]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    - name: mt_month_17_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_month_17_std
+            columns: [订单ID, 骑手ID, 惩罚原因, 惩罚金额(元)]
+            index: 订单ID
+        - df_merge:
+            other_df:
+              key: mt_day_2_3_dc_qs_order_lookup_map
+              columns: [站点ID, 订单ID]
+              index: 订单ID
+            on: 订单ID
+            how: left
+            left_index: true
+            right_index: true
+        - df_reset_index: [] 
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 惩罚金额(元)
+            rename: 固定惩罚
+        - df_reset_index: []
+        - push_dataset:
+            key: mt_month_17_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_17_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [固定惩罚]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    - name: mt_month_26_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_month_26_std
+            index: 订单ID
+        - df_merge:
+            other_df:
+              key: mt_day_2_3_dc_qs_order_lookup_map
+              columns: [站点ID, 订单ID]
+              index: 订单ID
+            on: 订单ID
+            how: left
+            left_index: true
+            right_index: true
+        - df_reset_index: [] 
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 配送服务2.0违规扣款(元)
+            rename: 配送服务2_0违规扣款
+        - df_reset_index: []
+        - push_dataset:
+            key: mt_day_26_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_26_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [配送服务2_0违规扣款]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+    
+    - name: mt_month_27_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_month_27_std
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 帐单金额
+            rename: 平台奖励_活动
+        - df_reset_index: []
+        - push_dataset:
+            key: mt_day_27_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_27_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [平台奖励_活动]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+    
+    - name: mt_month_28_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_month_28_std
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 帐单金额
+            rename: 平台奖励_调账
+        - df_reset_index: []
+        - push_dataset:
+            key: mt_day_28_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_28_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [平台奖励_调账]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    - name: mt_month_29_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_month_29_std
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 帐单金额
+            rename: 平台奖励_骑手
+        - df_reset_index: []
+        - push_dataset:
+            key: mt_day_29_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_day_29_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [平台奖励_骑手]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    - name: mt_month_16_std_ext
+      sync_result: true
+      sync_result_from_cluster: true
+      cooks:
+          - use_df:
+              key: mt_month_16_std
+              columns: [站点ID, 得分, 星级, 评星奖惩总额(元)]
+              rename:
+                评星奖惩总额(元): 评星奖惩总额
+          - drop_duplicates: [站点ID]
+          - df_to_int:
+              - 星级
+          - add_cols:
+              - 次数: 1
+          - push_dataset:
+              key: mt_month_16_std_ext_mini
+          - use_df:
+              key: std_qplus_vendor_dc_map
+              columns: [vendor_dc_id,dc_id]
+              rename:
+                vendor_dc_id: 站点ID
+          - stash_push_df: []
+          - use_df:
+              key: mt_month_16_std_ext_mini
+          - stash_push_df: []
+          # merge
+          - stash_join_df:
+              on: [站点ID]
+              how: left
+              drop_stash: true
+          - df_groupby:
+              by: [dc_id]
+          - df_sum:
+              column: [评星奖惩总额, 次数, 得分, 星级]
+          - df_reset_index: []
+          - df_eval:
+                - |
+                    [得分] = [得分] / [次数]
+                    [星级] = [星级] / [次数]
+          - df_round:
+              columns: [评星奖惩总额, 得分, 星级]
+              precision: 2
+          - set_meta_month_column:
+              - month
+
+    - name: mt_month_14_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_month_14_std
+        - df_groupby:
+            by: [站点ID]
+        - df_sum:
+            column: 金额
+        - df_reset_index: []
+        - rename_cols:
+          - 金额: 履约罚单扣款
+        - push_dataset:
+            key: mt_month_14_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_14_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - df_groupby:
+            by: [dc_id]
+        - df_sum:
+            column: [履约罚单扣款]
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+    - name: mt_teams_basic_lable_by_month
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_month_8_std_ext
+            columns: [dc_id, 餐损赔付]
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_17_std_ext
+            columns: [dc_id, 固定惩罚]
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_16_std_ext
+            columns: [dc_id, 得分, 星级, 评星奖惩总额]
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_26_std_ext
+            columns: [dc_id, 配送服务2_0违规扣款]
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_27_std_ext
+            columns: [dc_id, 平台奖励_活动]
+            ignore_null_error: true
+            empty_df_record:
+                dc_id: 无
+                平台奖励_活动: 0.00
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_28_std_ext
+            columns: [dc_id, 平台奖励_调账]
+            ignore_null_error: true
+            empty_df_record:
+                dc_id: 无
+                平台奖励_调账: 0.00
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_29_std_ext
+            columns: [dc_id, 平台奖励_骑手]
+            ignore_null_error: true
+            empty_df_record:
+                dc_id: 无
+                平台奖励_骑手: 0.00
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_14_std_ext
+            columns: [dc_id, 履约罚单扣款]
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_7_std_ttl_ext
+            columns: [dc_id, 结算单量, 收入小计,订单天数, 当月总天数, 准确日均单量, 当月准确总结算单量]
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [dc_id]
+            how: left
+            fillna: 0
+            drop_stash: true
+        - add_cols:
+            - 政策性收入_商权益: 0.00
+              政策性收入_调账奖惩: 0.00
+              履约扣罚_调账奖惩: 0.00
+              骑手关怀计划出资: 0.00
+              活动预付款扣减: 0.00 
+              骑手活动扣罚款_调账奖惩: 0.00
+              其他常态扣罚_调账奖惩: 0.00
+              其他非常态扣罚_调账奖惩: 0.00
+              政策收入_强分摊: 0.00
+              站点变卖损益: 0.00
+              物资变卖收入: 0.00
+              平台税金返还_调账奖惩: 0.00
+              非运营罚款_调账奖惩: 0.00
+              扣罚不开票_调账奖惩: 0.00
+        # 计算美团的税后基础收入
+        - df_eval: 
+            - | 
+               [收入小计] = [收入小计] / @tax_rate
+               [评星奖惩总额] = [评星奖惩总额] / @tax_rate
+               [餐损赔付] = [餐损赔付] / @tax_rate
+               [固定惩罚] = [固定惩罚] / @tax_rate
+               [履约罚单扣款] = [履约罚单扣款] / @tax_rate
+               [配送服务2_0违规扣款] = [配送服务2_0违规扣款] / @tax_rate
+               [履约扣罚_调账奖惩] = [履约扣罚_调账奖惩] / @tax_rate
+               [骑手关怀计划出资] = [骑手关怀计划出资] / @tax_rate
+               [活动预付款扣减] = [活动预付款扣减] / @tax_rate
+               [骑手活动扣罚款_调账奖惩] = [骑手活动扣罚款_调账奖惩] / @tax_rate
+               [其他常态扣罚_调账奖惩] = [其他常态扣罚_调账奖惩] / @tax_rate
+               [其他非常态扣罚_调账奖惩] = [其他非常态扣罚_调账奖惩] / @tax_rate
+        - set_meta_month_column:
+            - month
+

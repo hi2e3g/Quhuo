@@ -1,0 +1,320 @@
+ele_daily_env:
+  context_defaults:
+    platform_code: elem
+    play_on_dask_cluster: true
+    delay_compute: true
+    sync_result_from_cluster: true
+    dask_client_set_as_default: true
+    debug: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+  pre_load_dataset:
+    - std_qplus_vendor_dc_map
+    # 财务账单-账单下载-配送费
+    - ele_day_34_std
+    # 申诉管理-服务奖惩-评价
+    - ele_day_13_std
+    - ele_day_32_std_ext
+    - ele_day_36_std_ext
+    - ele_day_34_std_lookup_map
+
+  #  预计算的数据集
+  play:
+    - name: ele_day_13_std_ext
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_day_13_std
+            columns: [运单号, 评价等级]
+            index: 运单号
+        - df_select:
+            - '[评价等级] == @p1 '
+            - p1: 非常满意
+#        - dask_persist_compute:
+#            sync_compute: true
+#            chunk_size: 5000
+        - push_dataset:
+            key: ele_day_13_std_tmp
+        - use_df:
+            key: ele_day_34_std_lookup_map
+            columns: [账单时间, 骑手ID, 站点ID, 运单号]
+            index: 运单号
+#        - dask_persist_compute:
+#            sync_compute: true
+#            chunk_size: 10000
+        - push_dataset:
+            key: ele_day_34_std_lookup_map_idx
+        - pop_dataset:
+            key: ele_day_13_std_tmp
+        - df_merge:
+            other_df: ele_day_34_std_lookup_map_idx
+            on: 运单号
+            how: left
+            left_index: true
+            right_index: true
+            force_rebuild_dask: false
+        - df_reset_index:
+            rename:
+              账单时间: 日期
+        - push_dataset: 
+            key: ele_day_13_std_ext_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: ele_day_13_std_ext_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - set_meta_month_column:
+            - month
+            
+
+    - name: ele_worker_order_common_kpi_by_daily_t2
+      sync_result: true
+      cooks:
+        # 虚假配送单、配送原因取消单
+        - use_df:
+            key: ele_day_32_std_ext
+            columns: [账单时间, 骑手ID, 站点ID, 虚假配送单量, 配送原因取消单量]
+            rename:
+                账单时间: 日期
+                虚假配送单量: 虚假配送单
+                配送原因取消单量: 配送原因取消单
+        - stash_push_df: []
+        # 违规（不包含罚单）、申诉
+        - use_df:
+            key: ele_day_36_std_ext
+            columns: [账单时间, 骑手ID, 站点ID, 违规（不包含罚单）, 申诉]
+            rename:
+              账单时间: 日期
+        - stash_push_df: []
+        # 超时单量
+        - use_df:
+            key: ele_day_34_std
+            columns: [账单时间, 骑手ID, 站点ID, 业务类型, 订单号, 详情]
+            rename:
+              账单时间: 日期
+        - df_select:
+            - '([业务类型] == @p1) & ([详情] == @p2)'
+            - p1: 配送收入
+              p2: 完成单-超时
+        - df_groupby:
+            by: [日期, 骑手ID, 站点ID]
+        - df_count:
+            column: 订单号
+            rename: 超时单量
+        - df_reset_index: []
+        - stash_push_df: []
+        # 好评单量
+        - use_df:
+            key: ele_day_13_std_ext
+            columns: [日期, 骑手ID, 站点ID, 评价等级, 运单号]
+        - df_groupby:
+            by: [日期, 骑手ID, 站点ID]
+        - df_count:
+            column: 运单号
+            rename: 好评单量
+        - df_reset_index: []
+        - stash_push_df: []
+        # 完成单量
+        - use_df:
+            key: ele_day_34_std
+            columns: [账单时间, 骑手ID, 站点ID, 业务类型, 订单号, 详情]
+            rename:
+              账单时间: 日期
+        - df_select:
+            - '([业务类型] == @p1) & ([详情] in @p2)'
+            - p1: 配送收入
+              p2: [差评,完成单,完成单-超时]
+        - df_groupby:
+            by: [日期, 骑手ID, 站点ID]
+        - df_count:
+            column: 订单号
+            rename: 完成单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [日期, 骑手ID, 站点ID]
+            how: left
+            fillna: 0
+            drop_stash: true
+            force_rebuild_dask: false
+        - df_eval:
+            - '[准时单量] =  [完成单量] - [超时单量]'
+        - add_cols:
+            - 出勤天数: 1
+        - push_dataset: 
+            key: ele_worker_order_common_kpi_by_daily_t2_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: ele_worker_order_common_kpi_by_daily_t2_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - set_meta_month_column:
+            - month
+
+    - name: ele_worker_order_common_kpi_by_monthly_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_worker_order_common_kpi_by_daily_t2
+        - df_groupby:
+            by: [骑手ID, dc_id, 站点ID]
+        - df_sum:
+            column:
+              - 出勤天数
+              - 完成单量
+              - 超时单量
+              - 好评单量
+              - 准时单量
+              - 违规（不包含罚单）
+              - 申诉
+              - 虚假配送单
+              - 配送原因取消单
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+            
+
+ele_month_env:
+  context_defaults:
+    platform_code: elem
+    play_on_dask_cluster: true
+    delay_compute: true
+    sync_result_from_cluster: true
+    dask_client_set_as_default: true
+    debug: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+  pre_load_dataset:
+    - std_qplus_vendor_dc_map
+    # 财务账单-账单下载-配送费
+    - ele_month_35_std
+    - ele_month_33_std_ext
+    - ele_month_37_std_ext
+    - ele_worker_order_common_kpi_by_daily_t2
+  #  预计算的数据集
+  play:
+    - name: ele_worker_order_common_kpi_by_daily_month
+      sync_result: true
+      cooks:
+        # 虚假配送单,配送原因取消单
+        - use_df:
+            key: ele_month_33_std_ext
+            columns: [账单时间, 骑手ID, 站点ID, 虚假配送单量,配送原因取消单量]
+            rename:
+                账单时间: 日期
+                虚假配送单量: 虚假配送单
+                配送原因取消单量: 配送原因取消单
+        - stash_push_df: []
+        # 违规（不包含罚单）、申诉
+        - use_df:
+            key: ele_month_37_std_ext
+            columns: [账单时间, 骑手ID, 站点ID, 违规（不包含罚单）,申诉]
+            rename:
+              账单时间: 日期
+        - stash_push_df: []
+        # 好评单量
+        - use_df:
+            key: ele_worker_order_common_kpi_by_daily_t2
+            columns: [日期, 骑手ID, 站点ID, 好评单量]
+        - stash_push_df: []
+        # 超时单量
+        - use_df:
+            key: ele_month_35_std
+            rename:
+              账单时间: 日期
+        - df_select:
+            - '([业务类型] == @p1) & ([详情] == @p2)'
+            - p1: 配送收入
+              p2: 完成单-超时
+        - df_groupby:
+            by: [日期, 骑手ID, 站点ID]
+        - df_count:
+            column: 订单号
+            rename: 超时单量
+        - df_reset_index: []
+        - stash_push_df: []
+        # 完成单量
+        - use_df:
+            key: ele_month_35_std
+            rename:
+              账单时间: 日期
+        - df_select:
+            - '([业务类型] == @p1) & ([详情] in @p2)'
+            - p1: 配送收入
+              p2: [差评,完成单,完成单-超时]
+        - df_groupby:
+            by: [日期, 骑手ID, 站点ID]
+        - df_count:
+            column: 订单号
+            rename: 完成单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [日期, 骑手ID, 站点ID]
+            how: left
+            fillna: 0
+            drop_stash: true
+            force_rebuild_dask: false
+        - df_eval:
+            - '[准时单量] =  [完成单量] - [超时单量]' 
+        - add_cols:
+            - 出勤天数: 1
+        - push_dataset: 
+            key: ele_worker_order_common_kpi_by_daily_month_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: ele_worker_order_common_kpi_by_daily_month_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - set_meta_month_column:
+            - month
+   
+
+    #  通用的KPI指标表
+    - name: ele_worker_order_common_kpi_by_monthly_month
+      sync_result: true
+      cooks:
+        - use_df:
+            key: ele_worker_order_common_kpi_by_daily_month
+        - df_groupby:
+            by: [骑手ID, dc_id, 站点ID]
+        - df_sum:
+            column:
+              - 出勤天数
+              - 完成单量
+              - 超时单量
+              - 好评单量
+              - 准时单量
+              - 虚假配送单
+              - 配送原因取消单
+              - 违规（不包含罚单）
+              - 申诉
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month

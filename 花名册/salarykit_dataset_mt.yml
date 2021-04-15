@@ -1,0 +1,223 @@
+mt_daily_env:
+  context_defaults:
+    platform_code: meituan
+    play_on_dask_cluster: true
+    delay_compute: true
+    sync_result_from_cluster: true
+    dask_client_set_as_default: true
+    debug: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+  pre_load_dataset:
+    - std_qplus_vendor_dc_map
+    # 跑腿订单详情（兴达）
+    - mt_day_1_std
+    # 数据中心-订单详情查询-订单来源-海葵平台    
+    - mt_day_3_std
+    # 烽火台-数据中心-运营指标检测
+    - mt_day_18_std
+    # 众包订单详情（润达）
+    - mt_day_30_std
+
+  play:
+    - name: mt_worker_order_common_kpi_by_daily_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_day_18_std
+            columns: [日期, 骑手ID, 站点ID, 完成单量, 用户评价配送五分单量, 配送准时单量]
+            rename:
+              完成单量: 平台完成单量
+              用户评价配送五分单量: 好评单量
+              配送准时单量: 准时单量
+        - df_to_int:
+            - 好评单量
+        - df_to_int:
+            - 平台完成单量
+        - df_to_int:
+            - 准时单量
+        - stash_push_df: []
+        # 跑腿完成单量
+        - use_df:
+            key: mt_day_1_std
+            columns: [日期, 订单ID,骑手ID,站点ID,状态]
+        - df_select:
+            - '[状态]== @p1'
+            - p1: 已送达
+        - df_groupby:
+            by: [日期,骑手ID,站点ID]
+        - df_count:
+            column: 订单ID
+            rename: 跑腿完成单量
+        - df_reset_index: []
+        - stash_push_df: []
+        # 众包完成单量
+        - use_df:
+            key: mt_day_30_std
+            columns: [日期, 订单ID,骑手ID,站点ID,状态]
+        - df_select:
+            - '[状态]== @p1'
+            - p1: 已送达
+        - df_groupby:
+            by: [日期,骑手ID,站点ID]
+        - df_count:
+            column: 订单ID
+            rename: 众包完成单量
+        - df_reset_index: []
+        - stash_push_df: []
+        # 外单单量
+        - use_df:
+            key: mt_day_3_std
+            columns: [日期, 订单ID,骑手ID,站点ID,状态]
+        - df_select:
+            - '[状态]== @p1'
+            - p1: 已送达
+        - df_groupby:
+            by: [日期,骑手ID,站点ID]
+        - df_count:
+            column: 订单ID
+            rename: 外单单量
+        - df_reset_index: []
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [日期, 站点ID,骑手ID]
+            how: outer
+            fillna: 0
+            drop_stash: true
+        - df_reset_index: []
+        - df_sum_with_columns:
+            init_value: 0.0
+            dest_column: 完成单量
+            src_columns: [平台完成单量,跑腿完成单量,众包完成单量]
+        - df_sum_with_columns:
+            init_value: 0.0
+            dest_column: 总完成单量
+            src_columns: [平台完成单量,跑腿完成单量,众包完成单量,外单单量]
+        - add_cols:
+            - 出勤天数: 1
+        - push_dataset: 
+            key: mt_worker_order_common_kpi_by_daily_t2_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_worker_order_common_kpi_by_daily_t2_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - set_meta_month_column:
+            - month
+
+    - name: mt_worker_order_common_kpi_by_monthly_t2
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_worker_order_common_kpi_by_daily_t2
+        - df_groupby:
+            by: [骑手ID, dc_id, 站点ID]
+        - df_sum:
+            column:
+                - 出勤天数
+                - 平台完成单量
+                - 跑腿完成单量
+                - 众包完成单量
+                - 完成单量
+                - 外单单量
+                - 总完成单量
+                - 准时单量
+                - 好评单量
+        - df_reset_index: []
+        - set_meta_month_column:
+            - month
+
+
+    # 月数据
+    # 平台单+跑腿单+众包单=完成单量
+    # 外单
+    # 烽火台-数据中心-运营指标检测 存在月文件 使用的月文件计算平台完成单量、超时单量、好评单量
+mt_month_env:
+  context_defaults:
+    platform_code: meituan
+    play_on_dask_cluster: true
+    delay_compute: true
+    sync_result_from_cluster: true
+    dask_client_set_as_default: true
+    debug: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+
+  pre_load_dataset:
+    - std_qplus_vendor_dc_map
+    # 烽火台-数据中心-运营指标检测
+    - mt_month_21_std
+    - mt_worker_order_common_kpi_by_daily_t2
+
+  play:
+    - name: mt_worker_order_common_kpi_by_monthly_month
+      sync_result: true
+      cooks:
+        - use_df:
+            key: mt_worker_order_common_kpi_by_daily_t2
+            columns: [日期, 骑手ID, 站点ID, 跑腿完成单量, 众包完成单量,外单单量]
+        - df_groupby:
+            by: [日期, 骑手ID, 站点ID]
+        - df_sum:
+            column: [跑腿完成单量, 众包完成单量,外单单量]
+        - df_reset_index: []
+        - add_cols:
+            - 出勤天数: 1
+        - df_reset_index: []
+        - df_groupby:
+            by: [骑手ID, 站点ID]
+        - df_sum:
+            column:
+                - 出勤天数
+                - 跑腿完成单量
+                - 众包完成单量
+                - 外单单量
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: mt_month_21_std
+            columns: [日期, 骑手ID, 站点ID, 完成单量, 用户评价配送五分单量, 配送准时单量]
+            rename:
+              完成单量: 平台完成单量
+              用户评价配送五分单量: 好评单量
+              配送准时单量: 准时单量
+        - stash_push_df: []
+        - stash_join_df:
+            on: [站点ID,骑手ID]
+            how: outer
+            fillna: 0
+            drop_stash: true
+        - df_sum_with_columns:
+            init_value: 0.0
+            dest_column: 完成单量
+            src_columns: [平台完成单量,跑腿完成单量,众包完成单量]
+        - df_sum_with_columns:
+            init_value: 0.0
+            dest_column: 总完成单量
+            src_columns: [平台完成单量,跑腿完成单量,众包完成单量,外单单量]
+        - push_dataset:
+            key: mt_worker_order_common_kpi_by_monthly_month_mini
+        - use_df:
+            key: std_qplus_vendor_dc_map
+            columns: [vendor_dc_id,dc_id]
+            rename:
+                vendor_dc_id: 站点ID
+        - stash_push_df: []
+        - use_df:
+            key: mt_worker_order_common_kpi_by_monthly_month_mini
+        - stash_push_df: []
+        # merge
+        - stash_join_df:
+            on: [站点ID]
+            how: left
+            drop_stash: true
+        - set_meta_month_column:
+            - month
