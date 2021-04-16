@@ -1,0 +1,68 @@
+import os
+import shutil
+import os, sys
+
+
+def divinput(i):
+    a=["安阳","鞍山","北京","包头","常州","赤峰","大连","大庆","东莞","佛山","贵阳","哈尔滨","呼和浩特","吉林","佳木斯","嘉兴","江门","开封","昆明","兰州","南宁","南阳","齐齐哈尔","日照","商丘","上海","深圳","沈阳","苏州","潍坊","无锡","芜湖","西安","盐城","长沙","郑州","重庆"]
+
+
+    src_dir_path = 'E:\\GUAN拆分程序\\城市\\'+a[i]      
+    to_dir_path1 = 'E:\\GUAN拆分程序\\表\\14A骑手管理-骑手考勤-出勤统计\\'+a[i]  
+    to_dir_path2 = 'E:\\GUAN拆分程序\\表\\25骑手详情\\'+a[i]  
+    to_dir_path3 = 'E:\\GUAN拆分程序\\表\\账单'
+    to_dir_path4 = 'E:\\GUAN拆分程序\\表\\骑手账单'
+    to_dir_path5 = 'E:\\GUAN拆分程序\\表\\20AKPI管理-站点指标明细-问题单\\'+a[i]  
+    to_dir_path6 = 'E:\\GUAN拆分程序\\表\\12申诉管理-服务奖惩-评价\\'+a[i]
+    to_dir_path7 = 'E:\\GUAN拆分程序\\表\\2【自定义】饿了么骑士手工模板'
+    to_dir_path8 = 'E:\\GUAN拆分程序\\表\\5数据分析-运单详情\\'+a[i]  
+
+
+
+    key1 = '出勤统计表'  # 源文件夹中的文件包含字符key则复制到to_dir_path文件夹中
+    key2 = '骑手数据明细'
+    key3 = "代理商账单"
+    key4 = "骑手账单"
+    key5 = "KPI"
+    key6 = "服务中心"
+    key7 = "骑手信息"
+    key8 = "运单数据"
+
+
+    os.rename("E:\\GUAN拆分程序\\城市\\"+a[i]+"\\骑手信息.xlsx","E:\\GUAN拆分程序\\城市\\"+a[i]+"\\"+a[i]+"骑手信息.xlsx")
+
+    filelist = os.listdir(src_dir_path)                     # 当前路径下文件内容列表
+
+    def printallfiles(dirs, abspath) :
+        
+        for file in dirs:
+            sub_path = os.path.join(abspath, file)          # 获取文件的绝对路径
+            if(os.path.isdir(sub_path)):                    # 判断是否为文件夹
+                temppath = os.listdir(sub_path)
+                printallfiles(temppath,sub_path)            # 递归调用函数，目的是遍历所有文件
+            else:
+
+                if key1 in file:
+                    shutil.copy(sub_path, to_dir_path1)
+                if key2 in file:
+                    shutil.copy(sub_path, to_dir_path2)
+                if key3 in file:
+                    shutil.copy(sub_path, to_dir_path3)    
+                if key4 in file:
+                    shutil.copy(sub_path, to_dir_path4)
+                if key5 in file:
+                    shutil.copy(sub_path, to_dir_path5)
+                if key6 in file:
+                    shutil.copy(sub_path, to_dir_path6)    
+                if key7 in file:
+                    shutil.copy(sub_path, to_dir_path7)
+                if key8 in file:
+                    shutil.copy(sub_path, to_dir_path8)
+
+    printallfiles(filelist, src_dir_path)
+
+i=0
+while (i<3):
+    divinput(i)
+    i+=1
+print("done")    
